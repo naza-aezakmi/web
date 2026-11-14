@@ -20,12 +20,12 @@ function exitIntro() {
   if (exitTimer !== undefined) window.clearTimeout(exitTimer)
   leaving.value = true
   emit('leaving')
-  finishTimer = window.setTimeout(finish, reducedMotion ? 150 : 200)
+  finishTimer = window.setTimeout(finish, reducedMotion ? 150 : 340)
 }
 
 onMounted(() => {
   reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  exitTimer = window.setTimeout(() => exitIntro(), reducedMotion ? 250 : 300)
+  exitTimer = window.setTimeout(() => exitIntro(), reducedMotion ? 250 : 1900)
 })
 
 onUnmounted(() => {
@@ -142,7 +142,7 @@ onUnmounted(() => {
   overflow: hidden;
   background: radial-gradient(ellipse at 50% 47%, rgba(6, 6, 8, .83) 0%, rgba(0, 0, 0, .97) 80%);
   opacity: 1;
-  transition: opacity .2s ease;
+  transition: opacity .32s ease;
 }
 
 .nasa-intro.is-leaving { opacity: 0; }
@@ -155,7 +155,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(35, 65, 121, .19), rgba(15, 26, 54, .09) 47%, transparent 69%);
   filter: blur(32px);
   opacity: 0;
-  animation: glow-in .16s .02s ease both;
+  animation: glow-in .35s .04s ease both;
   pointer-events: none;
 }
 
@@ -165,7 +165,7 @@ onUnmounted(() => {
   min-width: 300px;
   opacity: 1;
   transform: none;
-  animation: emblem-in .1s ease-out both;
+  animation: emblem-in .22s ease-out both;
   will-change: transform, opacity;
 }
 
@@ -175,18 +175,18 @@ onUnmounted(() => {
   opacity: 1;
   transform: none;
   transform-origin: 707px 629px;
-  animation: disc-in .12s .015s ease-out both;
+  animation: disc-in .3s .03s ease-out both;
 }
 
 .nasa-stars, .nasa-orbit {
   opacity: 1;
-  animation: details-in .16s .06s ease both;
+  animation: details-in .35s .13s ease both;
 }
 
 .nasa-letter {
   opacity: 1;
   transform: none;
-  animation: letter-in .19s .075s ease-out both;
+  animation: letter-in .75s .15s ease-out both;
 }
 
 .vector-trace {
@@ -196,14 +196,14 @@ onUnmounted(() => {
   stroke-linejoin: round;
   stroke-dasharray: 1000;
   stroke-dashoffset: 0;
-  animation: trim-vector .19s .075s cubic-bezier(.2, .04, .56, 1) both;
+  animation: trim-vector .75s .15s cubic-bezier(.2, .04, .56, 1) both;
 }
 
 .is-leaving .nasa-emblem {
   animation: none;
   opacity: 0;
   transform: translate3d(0, -110vh, 0) scale(.87) rotate(-5deg);
-  transition: transform .2s cubic-bezier(.6, 0, .9, .32), opacity .18s ease;
+  transition: transform .32s cubic-bezier(.6, 0, .9, .32), opacity .28s ease;
 }
 
 @keyframes emblem-in {
