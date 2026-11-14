@@ -1,5 +1,5 @@
 <template>
-  <div ref="container" class="planet-scene" aria-hidden="true">
+  <div ref="container" class="planet-scene">
     <template v-if="webglFailed">
       <div
         class="fallback-planet fallback-planet--moon"
@@ -25,14 +25,17 @@ type Body = {
   mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>
   material: THREE.MeshStandardMaterial
   glow: THREE.Sprite
+  marker: THREE.Group
+  yaw: number
+  pitch: number
   pose: Pose
   from: Pose
   to: Pose
   texture?: THREE.Texture
 }
 
-const props = defineProps<{ selected: Planet | null }>()
-const emit = defineEmits<{ select: [value: Planet] }>()
+const props = defineProps<{ selected: Planet | null; point: { lat: number; lon: number } | null }>()
+const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }] }>()
 const container = ref<HTMLElement | null>(null)
 const webglFailed = ref(false)
 
@@ -52,7 +55,7 @@ let transitionStart = 0
 let transitionDuration = 0
 let disposed = false
 let isReducedMotion = false
-let pointerDown: { x: number; y: number } | null = null
+let pointerDown: { x: number; y: number; lastX: number; lastY: number; planet: Planet | null } | null = null
 let viewport = { width: 1, height: 1 }
 const bodies = {} as Record<Planet, Body>
 const raycaster = new THREE.Raycaster()
@@ -89,6 +92,19 @@ function createBody(planet: Planet): Body {
   mesh.userData.planet = planet
   scene!.add(mesh)
 
+  const marker = new THREE.Group()
+  const markerRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.035, 0.052, 32),
+    new THREE.MeshBasicMaterial({ color: 0xfff1ce, side: THREE.DoubleSide, depthTest: true }),
+  )
+  const markerDot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xff604f, depthTest: true }),
+  )
+  marker.add(markerRing, markerDot)
+  marker.visible = false
+  mesh.add(marker)
+
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glowTexture,
     color: moon ? 0x8aaad1 : 0xd87a49,
@@ -101,7 +117,27 @@ function createBody(planet: Planet): Body {
   scene!.add(glow)
 
   const initial: Pose = { x: 0, y: 0, radius: 1, opacity: 1, turn: 0 }
-  return { mesh, material, glow, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial) }
+  return { mesh, material, glow, marker, yaw: 0, pitch: 0, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial) }
+}
+
+function updateMarker() {
+  for (const planet of PLANETS) {
+    const body = bodies[planet]
+    if (!body) continue
+    body.marker.visible = props.selected === planet && !!props.point
+    if (!body.marker.visible || !props.point) continue
+    const theta = (90 - props.point.lat) * Math.PI / 180
+    const phi = (props.point.lon + 180) * Math.PI / 180
+    const normal = new THREE.Vector3(
+      -Math.cos(phi) * Math.sin(theta),
+      Math.cos(theta),
+      Math.sin(phi) * Math.sin(theta),
+    )
+    body.marker.position.copy(normal).multiplyScalar(1.035)
+    body.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
+    ;(body.marker.children[1] as THREE.Mesh).position.z = 0.018
+  }
+  render()
 }
 
 function loadTexture(planet: Planet, url: string) {
@@ -143,7 +179,7 @@ function point(xFraction: number, yFraction: number) {
 
 function targetPose(planet: Planet): Omit<Pose, 'turn'> {
   const { width, height } = viewport
-  const mobile = width < 720
+  const mobile = width <= 760
   const compactMobile = mobile && height < 800
   const atRest = mobile
     ? point(0.5, planet === 'moon' ? (compactMobile ? 0.39 : 0.43) : (compactMobile ? 0.76 : 0.75))
@@ -158,10 +194,10 @@ function targetPose(planet: Planet): Omit<Pose, 'turn'> {
     return { ...atRest, radius: radius * 0.72, opacity: 0 }
   }
 
-  const selectedPosition = mobile ? point(1.09, 0.96) : point(0.92, 0.81)
+  const selectedPosition = mobile ? point(0.5, 0.3) : point(0.75, 0.52)
   const selectedRadiusPx = mobile
-    ? Math.min(height * 0.31, width * 0.62)
-    : Math.min(height * 0.44, width * 0.39)
+    ? Math.min(height * 0.18, width * 0.29)
+    : Math.min(height * 0.31, width * 0.22)
   return { ...selectedPosition, radius: pixelToWorld(selectedRadiusPx), opacity: 1 }
 }
 
@@ -186,7 +222,8 @@ function applyPose(body: Body, now: number, phase: number) {
   const bob = !isReducedMotion && !props.selected ? Math.sin(now * 0.00075 + phase) * 0.045 : 0
   body.mesh.position.set(body.pose.x, body.pose.y + bob, 0)
   body.mesh.scale.setScalar(body.pose.radius)
-  body.mesh.rotation.y = (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn
+  body.mesh.rotation.x = (body.mesh.userData.planet === 'moon' ? 0.07 : 0.19) + body.pitch
+  body.mesh.rotation.y = (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn + body.yaw
   body.material.opacity = body.pose.opacity
   body.mesh.visible = body.pose.opacity > 0.005
 
@@ -223,8 +260,10 @@ function frame(now: number) {
 
   if (!isReducedMotion) {
     // A very slow surface rotation keeps both textured spheres visibly three dimensional.
-    bodies.moon.pose.turn += dt * 0.035
-    bodies.mars.pose.turn += dt * 0.045
+    if (!props.selected) {
+      bodies.moon.pose.turn += dt * 0.035
+      bodies.mars.pose.turn += dt * 0.045
+    }
   }
   render(now)
 }
@@ -242,30 +281,46 @@ function resize() {
   camera.top = VISIBLE_HEIGHT / 2
   camera.bottom = -VISIBLE_HEIGHT / 2
   camera.updateProjectionMatrix()
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, viewport.width < 720 ? 1.75 : 2))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, viewport.width <= 760 ? 1.75 : 2))
   renderer.setSize(viewport.width, viewport.height, false)
   arrange(false)
   render()
 }
 
-function hitTest(event: PointerEvent): Planet | null {
-  if (!renderer || !camera || props.selected) return null
+function surfaceHit(event: PointerEvent): THREE.Intersection | null {
+  if (!renderer || !camera) return null
   const rect = renderer.domElement.getBoundingClientRect()
   pointer.set(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
   )
   raycaster.setFromCamera(pointer, camera)
-  const hits = raycaster.intersectObjects(PLANETS.map(planet => bodies[planet].mesh), false)
-  return (hits[0]?.object.userData.planet as Planet | undefined) ?? null
+  const meshes = props.selected ? [bodies[props.selected].mesh] : PLANETS.map(planet => bodies[planet].mesh)
+  return raycaster.intersectObjects(meshes, false)[0] ?? null
+}
+
+function hitTest(event: PointerEvent): Planet | null {
+  return (surfaceHit(event)?.object.userData.planet as Planet | undefined) ?? null
 }
 
 function onPointerMove(event: PointerEvent) {
-  if (renderer) renderer.domElement.style.cursor = hitTest(event) ? 'pointer' : 'default'
+  if (pointerDown?.planet && props.selected === pointerDown.planet) {
+    const body = bodies[pointerDown.planet]
+    body.yaw += (event.clientX - pointerDown.lastX) * 0.008
+    body.pitch = THREE.MathUtils.clamp(body.pitch + (event.clientY - pointerDown.lastY) * 0.008, -1.55, 1.55)
+    pointerDown.lastX = event.clientX
+    pointerDown.lastY = event.clientY
+    if (renderer) renderer.domElement.style.cursor = 'grabbing'
+    render()
+    return
+  }
+  if (renderer) renderer.domElement.style.cursor = hitTest(event) ? (props.selected ? 'grab' : 'pointer') : 'default'
 }
 
 function onPointerDown(event: PointerEvent) {
-  pointerDown = { x: event.clientX, y: event.clientY }
+  const planet = hitTest(event)
+  pointerDown = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, planet }
+  if (planet && props.selected === planet) renderer?.domElement.setPointerCapture(event.pointerId)
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -273,8 +328,18 @@ function onPointerUp(event: PointerEvent) {
   const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y)
   pointerDown = null
   if (moved > 8) return
-  const planet = hitTest(event)
-  if (planet) emit('select', planet)
+  const hit = surfaceHit(event)
+  const planet = hit?.object.userData.planet as Planet | undefined
+  if (!planet) return
+  if (!props.selected) {
+    emit('select', planet)
+  } else if (props.selected === planet && hit?.uv) {
+    emit('mark', {
+      planet,
+      lat: Number(((hit.uv.y - 0.5) * 180).toFixed(3)),
+      lon: Number(((hit.uv.x - 0.5) * 360).toFixed(3)),
+    })
+  }
 }
 
 function onPointerCancel() {
@@ -308,7 +373,8 @@ onMounted(() => {
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.35
-    renderer.domElement.setAttribute('aria-hidden', 'true')
+    renderer.domElement.setAttribute('aria-label', 'Interactive planet. Drag to rotate and click to mark a point.')
+    renderer.domElement.style.touchAction = 'none'
     container.value.appendChild(renderer.domElement)
   } catch {
     webglFailed.value = true
@@ -333,6 +399,7 @@ onMounted(() => {
   bodies.moon = createBody('moon')
   bodies.mars = createBody('mars')
   resize()
+  updateMarker()
   loadTexture('moon', '/textures/moon-color.jpg')
   loadTexture('mars', '/textures/mars-color.jpg')
 
@@ -348,7 +415,9 @@ onMounted(() => {
 
 watch(() => props.selected, (selected, previous) => {
   arrange(true, selected !== null && selected !== previous)
+  updateMarker()
 })
+watch(() => [props.point?.lat, props.point?.lon], updateMarker)
 
 onBeforeUnmount(() => {
   disposed = true
@@ -370,6 +439,11 @@ onBeforeUnmount(() => {
     if (!body) continue
     body.texture?.dispose()
     body.material.dispose()
+    body.marker.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return
+      object.geometry.dispose()
+      ;(object.material as THREE.Material).dispose()
+    })
     ;(body.glow.material as THREE.SpriteMaterial).dispose()
   }
   geometry?.dispose()
@@ -414,14 +488,14 @@ onBeforeUnmount(() => {
 }
 
 .fallback-planet.is-selected {
-  left: 92%;
-  top: 81%;
-  width: min(88vh, 78vw);
+  left: 75%;
+  top: 52%;
+  width: min(62vh, 44vw);
 }
 
 .fallback-planet.is-hidden { opacity: 0; }
 
-@media (max-width: 719px) {
+@media (max-width: 760px) {
   .fallback-planet {
     left: 50%;
     width: min(49vw, 27vh, 220px);
@@ -429,13 +503,13 @@ onBeforeUnmount(() => {
   .fallback-planet--moon { top: 43%; }
   .fallback-planet--mars { top: 75%; }
   .fallback-planet.is-selected {
-    left: 109%;
-    top: 96%;
-    width: min(62vh, 124vw);
+    left: 50%;
+    top: 30%;
+    width: min(36vh, 58vw);
   }
 }
 
-@media (max-width: 719px) and (max-height: 780px) {
+@media (max-width: 760px) and (max-height: 780px) {
   .fallback-planet--moon { top: 39%; }
   .fallback-planet--mars { top: 76%; }
 }

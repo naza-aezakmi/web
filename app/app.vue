@@ -92,6 +92,13 @@ function selectPlanet(planet: Planet) {
   form.value = blankForm()
 }
 
+function markPoint(point: { planet: Planet; lat: number; lon: number }) {
+  if (selected.value !== point.planet) return
+  form.value.pointQuery = formatCoordinates(point.lat, point.lon, point.planet)
+  pointOpen.value = false
+  triedSubmit.value = false
+}
+
 function goBack() {
   selected.value = null
   submitted.value = false
@@ -175,7 +182,7 @@ useHead({
     <ClientOnly><Starfield /></ClientOnly>
     <div class="ambient-shade" aria-hidden="true" />
     <div class="screen-grain" aria-hidden="true" />
-    <ClientOnly><PlanetScene :selected="selected" @select="selectPlanet" /></ClientOnly>
+    <ClientOnly><PlanetScene :selected="selected" :point="resolved ? { lat: resolved.lat, lon: resolved.lon } : null" @select="selectPlanet" @mark="markPoint" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
 
@@ -183,10 +190,9 @@ useHead({
       <a class="brand" href="/" aria-label="Back to planet selection" @click.prevent="goBack">
         <img class="brand-logo" src="/nasa-logo.svg" alt="NASA" />
       </a>
-      <div class="header-right">
-        <span class="header-index">{{ selected ? currentPlanet.number : '00' }} <span>/ 02</span></span>
-      </div>
     </header>
+
+    <p v-if="selected" class="planet-instruction">DRAG TO ROTATE <span>·</span> CLICK TO MARK</p>
 
     <Transition name="home-content">
       <main v-if="!selected" class="home-content" :inert="introActive">
@@ -221,7 +227,7 @@ useHead({
         <div class="mission-content">
           <p class="mission-overline"><span class="mission-overline__line" /> MISSION {{ currentPlanet.number }} <span>/ {{ currentPlanet.type }}</span></p>
           <h2>EXPLORE<br><span>{{ currentPlanet.name.toUpperCase() }}<i>.</i></span></h2>
-          <p class="mission-description">Every great expedition begins with a first step. Mark a point the way the maps do, then pick a study already running on Earth.</p>
+          <p class="mission-description">Drag the planet to explore its surface, then click to mark a point. You can also enter a location below.</p>
 
           <Transition name="form-swap" mode="out-in">
             <div v-if="submitted" class="form-success" role="status">

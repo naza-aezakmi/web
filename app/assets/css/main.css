@@ -29,10 +29,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .site-header { position: absolute; z-index: 10; top: 0; left: 0; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 34px 4.8vw 0; }
 .brand { display: inline-flex; align-items: center; color: #f3f5f7; text-decoration: none; }
 .brand-logo { display: block; width: 70px; height: 58px; object-fit: contain; }
-.header-right, .header-index { font-size: 9px; font-weight: 600; letter-spacing: .2em; }
-.header-right { display: flex; align-items: center; gap: 26px; text-align: right; }
-.header-index { color: #ebf1f4; font-family: 'Space Grotesk', Arial, sans-serif; font-size: 25px; font-weight: 400; letter-spacing: -.03em; }
-.header-index span { color: #627486; font-size: 13px; }
+.planet-instruction { position: absolute; z-index: 7; right: 7.3vw; bottom: 10%; margin: 0; color: #b8c6cf; font-size: 10px; font-weight: 600; letter-spacing: .22em; pointer-events: none; }
+.planet-instruction span { color: var(--accent); padding: 0 7px; }
 
 .home-content { position: absolute; z-index: 6; inset: 0; pointer-events: none; transition: opacity .2s ease, transform .2s cubic-bezier(.18, .7, .23, 1); }
 .is-intro .home-content { opacity: 0; transform: translateY(25px); }
@@ -137,8 +135,7 @@ h1, h2, h3 { font-family: 'Space Grotesk', Arial, sans-serif; }
   .app-shell { min-height: 760px; }
   .site-header { padding: 22px 23px 0; }
   .brand-logo { width: 58px; height: 48px; }
-  .header-index { font-size: 19px; }
-  .header-index span { font-size: 10px; }
+  .planet-instruction { top: 47%; right: 0; bottom: auto; left: 0; font-size: 9px; text-align: center; }
   .home-title { top: 85px; font-size: clamp(42px, 10.5vw, 55px); line-height: .9; }
   .mobile-title-break { display: initial; }
   .planet-choice { left: 50%; width: 65vw; height: 180px; }
@@ -150,7 +147,7 @@ h1, h2, h3 { font-family: 'Space Grotesk', Arial, sans-serif; }
   .planet-choice__subtitle { margin-top: 3px; font-size: 7px; }
 
   .back-button { top: 91px; left: 25px; font-size: 9px; }
-  .mission-content { top: 128px; bottom: 68px; left: 25px; width: min(420px, calc(100% - 50px)); }
+  .mission-content { top: 53%; bottom: 36px; left: 25px; width: min(420px, calc(100% - 50px)); }
   .mission-overline { margin-bottom: 15px; font-size: 8px; }
   .mission-overline__line { width: 18px; }
   .mission-content h2 { margin-bottom: 12px; font-size: clamp(48px, 11.6vw, 68px); }
@@ -175,7 +172,8 @@ h1, h2, h3 { font-family: 'Space Grotesk', Arial, sans-serif; }
   .planet-choice--moon { top: 39%; }
   .planet-choice--mars { top: 76%; }
   .planet-choice__label { top: calc(50% + 102px); }
-  .mission-content { top: 118px; bottom: 40px; }
+  .back-button { top: 73px; }
+  .mission-content { top: 53%; bottom: 24px; }
   .mission-description { margin-bottom: 11px; }
   .mission-form { gap: 8px; }
 }
