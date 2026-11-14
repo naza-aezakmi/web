@@ -1,0 +1,30 @@
+networks:
+  traefik_public:
+    external: true
+    name: traefik_traefik_proxy
+
+services:
+  web:
+    image: ${IMAGE}
+    networks:
+      - traefik_public
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+        monitor: 90s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=traefik_traefik_proxy"
+        - "traefik.http.routers.nasa-web.rule=Host(`nasa.aezakmi.org`)"
+        - "traefik.http.routers.nasa-web.entrypoints=websecure"
+        - "traefik.http.routers.nasa-web.tls.certresolver=le"
+        - "traefik.http.services.nasa-web.loadbalancer.server.port=3000"

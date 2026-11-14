@@ -1,0 +1,10 @@
+.git
+.github
+.nuxt
+.output
+.cache
+node_modules
+*.log
+.env
+.env.*
+.DS_Store
