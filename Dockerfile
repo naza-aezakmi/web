@@ -19,13 +19,11 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
     NITRO_HOST=0.0.0.0 \
-    NITRO_PORT=3000 \
-    TERRAIN_ATLAS_PATH=/app/terrain-atlas
+    NITRO_PORT=3000
 
 LABEL org.opencontainers.image.source="https://github.com/Org666777148852/web"
 
 COPY --from=build /app/.output ./.output
-COPY terrain-atlas ./terrain-atlas
 
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

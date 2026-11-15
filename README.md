@@ -1,8 +1,14 @@
 # NASA Moon and Mars Explorer
 
-An interactive Moon and Mars landing page built with Nuxt, Vue, Three.js, and a Canvas starfield. A short NASA logo animation introduces the planet selection screen. Selecting a planet brings it forward and opens a three-field mission form.
+**[Open the explorer](https://nasa.aezakmi.org)** · **[API docs](https://api.nasa.aezakmi.org/docs)** · **[API health](https://api.nasa.aezakmi.org/health)**
 
-This is an independent project, not an official NASA website. The form is a client-side demo and does not send or save data. Planet texture sources are listed in [public/textures/SOURCES.md](public/textures/SOURCES.md).
+An interactive Moon and Mars explorer built with Nuxt, Vue, Three.js, and a Canvas starfield. Select a planet, choose a location and field study, then compare its terrain with ranked Earth analogues. On phones, drag to rotate, pinch to zoom, and tap the surface to place the NASA flag.
+
+## Architecture
+
+The browser talks to this app's same-origin `/api/terrain-search` route. That route forwards requests to the separate [FastAPI service](https://github.com/Org666777148852/api). The API owns the relief index, search worker, and optional AI priority ranking. Map imagery comes from NASA Trek; Earth satellite imagery in the results comes from Esri.
+
+This is an independent project, not an official NASA website. Planet texture sources are listed in [public/textures/SOURCES.md](public/textures/SOURCES.md).
 
 ## Run locally
 
@@ -26,9 +32,9 @@ The private repository uses repository Actions secrets `DEPLOY_HOST`, `DEPLOY_US
 
 ### Earth terrain analogue search
 
-The web server runs the Atlas relief worker from `sites/atlas-10/dist`. From this frontend directory, the local preview resolves that checkout automatically. Production Docker images bundle the index under `/app/terrain-atlas` and set `TERRAIN_ATLAS_PATH`. Set another path to use a compatible Atlas index. Keep the manifest, worker, codec, Moon, Mars and Earth profile packs, and `relief/field-screen-v1.gz` together. The worker includes the preset-weight support used by this frontend. Node.js 22 or later provides the streaming decompression API required by the worker.
+The web server forwards `/api/terrain-search` to the separate [NASA API](https://github.com/Org666777148852/api), which owns the relief index and search engine. By default it calls `https://api.nasa.aezakmi.org/terrain/search`. For local development set `TERRAIN_API_URL=http://127.0.0.1:8000/terrain/search` on the web server and run the API locally. The browser only calls the same-origin Nuxt endpoint.
 
-To enable AI priority ranking for custom objectives, set `OPENAI_API_KEY` and `TERRAIN_AI_MODEL` (a model supporting structured output) on the web server. Only the custom objective is sent to OpenAI. The standard use cases use their preset priorities and the site reports are computed from the elevation data.
+To enable AI priority ranking for custom objectives, set `OPENAI_API_KEY` and `TERRAIN_AI_MODEL` on the API service. Only the custom objective is sent to OpenAI. Standard use cases use preset priorities.
 
 Mars map labels use the [USGS/IAU Gazetteer](https://planetarynames.wr.usgs.gov/GIS_Downloads).
 `app/data/mars-gazetteer.json` contains adopted feature centres, diameters in kilometres, and USGS IDs from the MDIM 2.1 centre-point export. Mission landmarks have their own pinned coordinates.

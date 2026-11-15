@@ -1,7 +1,5 @@
 import { createError, defineEventHandler, readBody } from 'nuxt/server'
-import { rankWeights } from '../../shared/terrain'
-import { rankCustomStudy } from '../utils/terrain-prompt'
-import { searchTerrain } from '../utils/terrain-worker'
+import type { TerrainResults } from '../../shared/terrain'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -9,11 +7,16 @@ export default defineEventHandler(async (event) => {
   if ((planet !== 'moon' && planet !== 'mars') || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || lon < -180 || lon > (planet === 'mars' ? 360 : 180)) {
     throw createError({ statusCode: 400, statusMessage: 'Enter a supported planet and valid coordinates' })
   }
-  const custom = typeof objective === 'string' && objective.trim() ? objective.trim().slice(0, 600) : ''
-  const order = custom ? await rankCustomStudy(custom) : null
-  const result = await searchTerrain(planet, lat, lon, rankWeights(order ?? priorities)).catch((error) => {
-    if (error.statusCode === 429) throw error
-    throw createError({ statusCode: 503, statusMessage: 'Terrain index is unavailable' })
-  })
-  return { ...result, prioritySource: custom ? (order ? 'ai' : 'default') : 'preset' }
+  try {
+    return await $fetch<TerrainResults>(process.env.TERRAIN_API_URL || 'https://api.nasa.aezakmi.org/terrain/search', {
+      method: 'POST',
+      body: { planet, lat, lon, priorities, objective },
+      timeout: 65_000,
+    })
+  } catch (error: any) {
+    throw createError({
+      statusCode: error?.status === 429 ? 429 : 503,
+      statusMessage: error?.status === 429 ? 'Terrain search is busy' : 'Terrain API is unavailable',
+    })
+  }
 })

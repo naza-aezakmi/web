@@ -4,15 +4,6 @@ export const featureIds = ['profile', 'range', 'slope', 'roughness'] as const
 export type Feature = typeof featureIds[number]
 export type Weights = Record<Feature, number>
 
-export const defaultWeights: Weights = { profile: .45, range: .25, slope: .20, roughness: .10 }
-
-export function rankWeights(order: unknown): Weights {
-  if (!Array.isArray(order) || order.length !== featureIds.length || !featureIds.every(id => order.includes(id))) {
-    return { ...defaultWeights }
-  }
-  return Object.fromEntries(order.map((id, index) => [id, [.45, .25, .20, .10][index]])) as Weights
-}
-
 export type Metrics = { range: number; slope: number; roughness: number }
 export type TerrainMatch = Metrics & {
   position: number
