@@ -37,7 +37,6 @@ type Body = {
   mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>
   material: THREE.MeshStandardMaterial
   glow: THREE.Sprite
-  marker: THREE.Group
   yaw: number
   pitch: number
   pose: Pose
@@ -166,10 +165,6 @@ function createBody(planet: Planet): Body {
   mesh.userData.planet = planet
   scene!.add(mesh)
 
-  const marker = new THREE.Group()
-  marker.visible = false
-  mesh.add(marker)
-
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glowTexture,
     color: moon ? 0xcbdced : 0xd87a49,
@@ -182,26 +177,7 @@ function createBody(planet: Planet): Body {
   scene!.add(glow)
 
   const initial: Pose = { x: 0, y: 0, radius: 1, opacity: 1, turn: 0, roll: 0 }
-  return { mesh, material, glow, marker, yaw: 0, pitch: 0, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial), tiles: createSphericalTiles(planet, mesh, requestRender) }
-}
-
-function updateMarker() {
-  for (const planet of PLANETS) {
-    const body = bodies[planet]
-    if (!body) continue
-    body.marker.visible = props.selected === planet && !!props.point
-    if (!body.marker.visible || !props.point) continue
-    const theta = (90 - props.point.lat) * Math.PI / 180
-    const phi = (props.point.lon + 180) * Math.PI / 180
-    const normal = new THREE.Vector3(
-      -Math.cos(phi) * Math.sin(theta),
-      Math.cos(theta),
-      Math.sin(phi) * Math.sin(theta),
-    )
-    body.marker.position.copy(normal).multiplyScalar(1.001)
-    body.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
-  }
-  requestRender()
+  return { mesh, material, glow, yaw: 0, pitch: 0, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial), tiles: createSphericalTiles(planet, mesh, requestRender) }
 }
 
 function loadTexture(planet: Planet, url: string) {
@@ -263,7 +239,7 @@ function targetPose(planet: Planet): Omit<Pose, 'turn'> {
   const zoomScale = props.zoom < 2 ? [1, 1.35][props.zoom]! : 1.9 * 2 ** (props.zoom - 2)
   const selectedRadius = pixelToWorld(selectedRadiusPx * zoomScale)
   if (props.point && props.zoom >= 2 && bodies[planet]) {
-    const markerOffset = bodies[planet].marker.position.clone().applyQuaternion(bodies[planet].mesh.quaternion)
+    const markerOffset = projectSite(props.point).normal.applyQuaternion(bodies[planet].mesh.quaternion)
     return {
       x: selectedPosition.x - markerOffset.x * selectedRadius,
       y: selectedPosition.y - markerOffset.y * selectedRadius,
@@ -295,8 +271,6 @@ function arrange(animate: boolean, spin = 0, spinningPlanet: Planet | null = pro
 function applyPose(body: Body) {
   body.mesh.position.set(body.pose.x, body.pose.y, 0)
   body.mesh.scale.setScalar(body.pose.radius)
-  const radiusPx = body.pose.radius * viewport.height / VISIBLE_HEIGHT
-  body.marker.scale.setScalar(Math.min(1, 125 / radiusPx))
   body.mesh.rotation.set(
     (body.mesh.userData.planet === 'moon' ? 0.07 : 0.19) + body.pitch,
     (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn + body.yaw,
@@ -373,8 +347,9 @@ function updateFlagOverlay() {
   }
   const body = bodies[planet]
   body.mesh.updateMatrixWorld(true)
-  body.marker.getWorldPosition(flagPosition)
-  flagNormal.copy(body.marker.position).applyQuaternion(body.mesh.quaternion)
+  flagNormal.copy(projectSite(props.point).normal)
+  flagPosition.copy(flagNormal).multiplyScalar(1.001).applyMatrix4(body.mesh.matrixWorld)
+  flagNormal.applyQuaternion(body.mesh.quaternion)
   if (flagNormal.z <= 0.02 || body.pose.opacity < 0.1) {
     flag.style.visibility = 'hidden'
     return
@@ -640,7 +615,6 @@ onMounted(() => {
   bodies.moon = createBody('moon')
   bodies.mars = createBody('mars')
   resize()
-  updateMarker()
   loadTexture('moon', '/textures/moon-trek-global.webp')
   loadTexture('mars', '/textures/mars-trek-global.webp')
 
@@ -657,10 +631,9 @@ onMounted(() => {
 
 watch(() => props.selected, (selected, previous) => {
   arrange(true, selected ? 1 : previous ? -1 : 0, selected ?? previous)
-  updateMarker()
 })
 watch(() => props.zoom, () => arrange(true))
-watch(() => [props.point?.lat, props.point?.lon], updateMarker)
+watch(() => [props.point?.lat, props.point?.lon], requestRender)
 watch(() => props.target, target => {
   const planet = props.selected
   if (!planet || !target || !bodies[planet]) return
@@ -694,11 +667,6 @@ onBeforeUnmount(() => {
     body.tiles.dispose()
     body.texture?.dispose()
     body.material.dispose()
-    body.marker.traverse(object => {
-      if (!(object instanceof THREE.Mesh)) return
-      object.geometry.dispose()
-      ;(object.material as THREE.Material).dispose()
-    })
     ;(body.glow.material as THREE.SpriteMaterial).dispose()
   }
   geometry?.dispose()
