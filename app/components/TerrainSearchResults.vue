@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { TerrainResults } from '../../shared/terrain'
 import { TERRAIN_FEATURES, formatCoordinates, type Planet } from '~/data/places'
 
+const { t } = useI18n()
 const props = defineProps<{
   planet: Planet
   reference: string
@@ -12,13 +13,13 @@ const props = defineProps<{
   error: string
 }>()
 const emit = defineEmits<{ edit: []; retry: [] }>()
-const sourceName = computed(() => props.planet === 'mars' ? 'Mars' : 'Moon')
+const sourceName = computed(() => t(props.planet))
 const active = ref(0)
 const candidate = computed(() => props.results?.matches[active.value])
-const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+const number = computed(() => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }))
 const coordinates = (lat: number, lon: number) =>
   `${Math.abs(lat).toFixed(4)}°${lat < 0 ? 'S' : 'N'}, ${Math.abs(lon).toFixed(4)}°${lon < 0 ? 'W' : 'E'}`
-const format = (value: number, unit: string) => `${number.format(value)}${unit === '°' ? '' : ' '}${unit}`
+const format = (value: number, unit: string) => `${number.value.format(value)}${unit === '°' ? '' : ' '}${unit}`
 const comparison = computed(() => {
   const site = candidate.value
   const result = props.results
@@ -32,7 +33,7 @@ const comparison = computed(() => {
   return rows.map(row => {
     const delta = Math.abs(row.earth - row.source)
     const weight = result.weights[row.id]
-    return { ...row, label: TERRAIN_FEATURES[row.id], delta, weight, contribution: weight * (delta / row.normalization) ** 2 }
+    return { ...row, label: t(`feature.${row.id}`), delta, weight, contribution: weight * (delta / row.normalization) ** 2 }
   }).sort((a, b) => b.weight - a.weight)
 })
 const largestDifference = computed(() => comparison.value.reduce<(typeof comparison.value)[number] | undefined>(
@@ -43,11 +44,11 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
   <main class="terrain-results">
     <div class="results-overview" :class="{ 'has-map': results && candidate }">
       <header class="results-nav">
-        <div class="results-brand"><img src="/nasa-logo.svg" alt="NASA"> NASA x AEZAKMI</div>
-        <button class="results-back" type="button" @click="emit('edit')">← Edit search</button>
+        <div class="results-brand"><img src="/nasa-logo.svg" alt="NASA"><span aria-hidden="true">×</span><img class="results-aezakmi" src="/aezakmi-logo.svg" alt="AEZAKMI"></div>
+        <button class="results-back" type="button" @click="emit('edit')">← {{ t('results.edit') }}</button>
       </header>
       <section class="results-intro">
-        <h1>Earth terrain analogues</h1>
+        <h1>{{ t('results.heading') }}</h1>
         <div class="results-reference">
           <p>{{ reference }}</p>
           <p class="objective">{{ objective }}</p>
@@ -56,45 +57,44 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
 
       <div v-if="loading" class="results-status" role="status">
         <span class="results-spinner" aria-hidden="true" />
-        <div><strong>Comparing elevation profiles</strong><p>The first search loads the terrain index on the server.</p></div>
+        <div><strong>{{ t('results.comparing') }}</strong><p>{{ t('results.loading') }}</p></div>
       </div>
       <div v-else-if="error" class="results-status" role="alert">
-        <div><strong>Search unavailable</strong><p>{{ error }}</p></div>
-        <button type="button" class="results-back" @click="emit('retry')">Retry</button>
+        <div><strong>{{ t('results.unavailable') }}</strong><p>{{ error }}</p></div>
+        <button type="button" class="results-back" @click="emit('retry')">{{ t('results.retry') }}</button>
       </div>
       <div v-else-if="results && candidate" class="results-layout">
-        <nav class="results-list" aria-label="Ranked Earth candidates">
-          <h2>Ranked sites</h2>
-          <p>{{ number.format(results.eligibleCount) }} windows passed the land screen</p>
+        <nav class="results-list" :aria-label="t('results.ranked')">
+          <h2>{{ t('results.ranked') }}</h2>
+          <p>{{ t('results.passed', { count: number.format(results.eligibleCount) }) }}</p>
           <button v-for="(site, index) in results.matches" :key="site.position" class="results-choice"
             :class="{ 'is-active': active === index }" :aria-pressed="active === index" @click="active = index">
             <span class="results-rank">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span><strong>{{ coordinates(site.lat, site.lon) }}</strong><small>{{ site.usa ? 'United States · ' : '' }}{{ format(site.error, 'm') }} profile RMSE</small></span>
+            <span><strong>{{ coordinates(site.lat, site.lon) }}</strong><small>{{ site.usa ? t('results.unitedStates') : '' }}{{ format(site.error, 'm') }} {{ t('results.profileRmse') }}</small></span>
           </button>
         </nav>
-        <article class="results-detail" aria-label="Selected Earth candidate">
-          <div class="site-title"><h2>Site {{ String(active + 1).padStart(2, '0') }}</h2><p>{{ coordinates(candidate.lat, candidate.lon) }}</p></div>
+        <article class="results-detail" :aria-label="t('results.site', { number: String(active + 1).padStart(2, '0') })">
+          <div class="site-title"><h2>{{ t('results.site', { number: String(active + 1).padStart(2, '0') }) }}</h2><p>{{ coordinates(candidate.lat, candidate.lon) }}</p></div>
           <TerrainSatellite :key="candidate.position" :site="candidate" :step="results.step" :radius="results.earth.radius" />
         </article>
       </div>
-      <p v-else class="results-status" role="status">No matching land windows were returned.</p>
+      <p v-else class="results-status" role="status">{{ t('results.none') }}</p>
     </div>
-    <section v-if="results && candidate" class="results-report" aria-label="Selected site analysis">
-      <h2>Site {{ String(active + 1).padStart(2, '0') }} · Terrain analysis</h2>
-      <p>After subtracting the mean elevation and testing 90° rotations, the two profiles differ by
-        <strong>{{ format(candidate.error, 'm') }} RMS</strong> across {{ results.size ** 2 }} elevations.
+    <section v-if="results && candidate" class="results-report" :aria-label="t('results.analysis')">
+      <h2>{{ t('results.site', { number: String(active + 1).padStart(2, '0') }) }} · {{ t('results.analysis') }}</h2>
+      <p>{{ t('results.profileComparison') }}
+        <strong>{{ format(candidate.error, 'm') }} RMS</strong> {{ t('results.across', { count: results.size ** 2 }) }}
         <template v-if="largestDifference?.contribution">
-          The largest penalty in the weighted score came from {{ largestDifference.label.toLowerCase() }}
-          ({{ format(largestDifference.delta, largestDifference.unit) }} difference).
+          {{ t('results.largestDifference', { feature: largestDifference.label.toLowerCase(), difference: format(largestDifference.delta, largestDifference.unit) }) }}
         </template>
       </p>
       <div class="comparison-scroll">
         <table>
-          <thead><tr><th scope="col">Criterion</th><th scope="col">Weight</th><th scope="col">{{ sourceName }}</th><th scope="col">Earth</th><th scope="col">Difference</th></tr></thead>
+          <thead><tr><th scope="col">{{ t('results.criterion') }}</th><th scope="col">{{ t('results.weight') }}</th><th scope="col">{{ sourceName }}</th><th scope="col">{{ t('results.earth') }}</th><th scope="col">{{ t('results.difference') }}</th></tr></thead>
           <tbody>
             <tr v-for="row in comparison" :key="row.id">
               <th scope="row">{{ row.label }}</th><td>{{ number.format(row.weight * 100) }}%</td>
-              <td v-if="row.id === 'profile'" colspan="2">Aligned relative profiles</td>
+              <td v-if="row.id === 'profile'" colspan="2">{{ t('results.alignedProfiles') }}</td>
               <template v-else><td>{{ format(row.source, row.unit) }}</td><td>{{ format(row.earth, row.unit) }}</td></template>
               <td>{{ format(row.delta, row.unit) }}{{ row.id === 'profile' ? ' RMS' : '' }}</td>
             </tr>
@@ -102,28 +102,29 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
         </table>
       </div>
       <TerrainMatrices :source-name="sourceName" :source="results.query" :earth="candidate.values" :size="results.size" :rotation="candidate.rotation" />
-      <h3>Field screening</h3>
-      <p class="results-method">The full search window passes the coastal and lake mask. The mask represents mapped water at regional scale. Check smaller streams, seasonal flooding, access and ground conditions before field testing.
+      <h3>{{ t('results.fieldScreening') }}</h3>
+      <p class="results-method">{{ t('results.fieldMethod') }}
         <a href="https://www.naturalearthdata.com/downloads/10m-physical-vectors/" target="_blank" rel="noopener noreferrer">Natural Earth ↗</a>
       </p>
-      <p v-if="results.prioritySource === 'ai'" class="results-method">AI ranked the four terrain criteria from your objective. The elevation index calculated and ranked the matches.</p>
-      <p v-if="results.prioritySource === 'default'" class="results-method">Default terrain weights were used because AI prioritization was unavailable.</p>
-      <h3>Data and scale</h3>
-      <p class="results-method">Reference window centre {{ formatCoordinates(results.source.lat, results.source.lon, planet) }}.
+      <p v-if="results.prioritySource === 'ai'" class="results-method">{{ t('results.aiRanked') }}</p>
+      <p v-if="results.prioritySource === 'default'" class="results-method">{{ t('results.defaultWeights') }}</p>
+      <h3>{{ t('results.dataScale') }}</h3>
+      <p class="results-method">{{ t('results.referenceCentre') }} {{ formatCoordinates(results.source.lat, results.source.lon, planet) }}.
         {{ results.source.label }} ({{ format(results.source.resolution, 'm') }}) and {{ results.earth.label }} ({{ format(results.earth.resolution, 'm') }}).
-        Both elevation profiles use {{ results.size }} × {{ results.size }} samples spaced {{ format(results.step / (results.size - 1) / 1000, 'km') }} apart.
-        This supports regional screening. A 500 m test plot requires a finer elevation model and field verification.</p>
+        {{ t('results.samples', { size: results.size, spacing: format(results.step / (results.size - 1) / 1000, 'km') }) }}
+        {{ t('results.screeningNote') }}</p>
     </section>
   </main>
 </template>
 
 <style scoped>
-.terrain-results { position: fixed; inset: 0; overflow: auto; background: #090909; color: #f4f5f7; font-family: Manrope, sans-serif; --results-top: clamp(16px, 2.6vw, 42px); padding: var(--results-top) clamp(18px, 4vw, 64px) 28px; }
+.terrain-results { position: fixed; inset: 0; overflow: auto; background: #090909; color: #f4f5f7; font-family: Geist, Arial, sans-serif; --results-top: clamp(16px, 2.6vw, 42px); padding: var(--results-top) clamp(18px, 4vw, 64px) 28px; }
 .results-overview,.results-report { max-width: 1320px; margin-inline: auto; }
 .results-overview { display: flex; flex-direction: column; }
 .results-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .results-brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: .9rem; letter-spacing: .05em; }
 .results-brand img { width: 46px; }
+.results-brand .results-aezakmi { width: 90px; height: auto; }
 .results-back { flex: none; border: 1px solid #ffffff30; border-radius: 99px; background: #ffffff12; color: #fff; padding: 9px 14px; font: inherit; cursor: pointer; }
 .results-back:hover { background: #ffffff24; }
 .results-intro { display: flex; justify-content: space-between; align-items: end; gap: 10px 24px; margin-block: 16px; }

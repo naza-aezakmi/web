@@ -7,7 +7,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Quaternion, Vector3 } from 'three'
 import catalog from '~/data/bright-stars.json'
 
-const props = defineProps<{ orbit: [number, number, number, number] }>()
+const props = defineProps<{ orbit: [number, number, number, number]; parallax: boolean }>()
 const canvas = ref<HTMLCanvasElement | null>(null)
 const rotation = new Quaternion()
 const direction = new Vector3()
@@ -31,6 +31,11 @@ let halo: HTMLCanvasElement | null = null
 let frame = 0
 let width = 0
 let height = 0
+let pointerX = 0
+let pointerY = 0
+let driftX = 0
+let driftY = 0
+let reducedMotion = false
 
 function createHalo() {
   const sprite = document.createElement('canvas')
@@ -49,6 +54,8 @@ function createHalo() {
 function draw() {
   frame = 0
   if (!context) return
+  driftX += (pointerX - driftX) * .07
+  driftY += (pointerY - driftY) * .07
   context.fillStyle = '#000000'
   context.fillRect(0, 0, width, height)
   rotation.fromArray(props.orbit)
@@ -58,8 +65,9 @@ function draw() {
     direction.copy(star.direction).applyQuaternion(rotation)
     if (direction.z <= 0) continue
     const scale = focalLength / direction.z
-    const x = width / 2 + direction.x * scale
-    const y = height / 2 - direction.y * scale
+    const depth = .55 + star.radius * .35
+    const x = width / 2 + direction.x * scale + driftX * depth * 12
+    const y = height / 2 - direction.y * scale + driftY * depth * 12
     const extent = star.glow ? star.radius * 3 : star.radius
     if (x < -extent || x > width + extent || y < -extent || y > height + extent) continue
     context.globalAlpha = star.opacity
@@ -70,6 +78,7 @@ function draw() {
     context.fill()
   }
   context.globalAlpha = 1
+  if (Math.abs(pointerX - driftX) > .002 || Math.abs(pointerY - driftY) > .002) queueDraw()
 }
 
 function queueDraw() {
@@ -90,14 +99,26 @@ function resize() {
 }
 
 watch(() => props.orbit, queueDraw)
+watch(() => props.parallax, active => {
+  if (!active) { pointerX = 0; pointerY = 0; queueDraw() }
+})
+function onPointerMove(event: PointerEvent) {
+  if (!props.parallax || reducedMotion || event.pointerType === 'touch') return
+  pointerX = event.clientX / window.innerWidth * 2 - 1
+  pointerY = event.clientY / window.innerHeight * 2 - 1
+  queueDraw()
+}
 onMounted(() => {
+  reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   halo = createHalo()
   resize()
   window.addEventListener('resize', resize)
+  window.addEventListener('pointermove', onPointerMove, { passive: true })
 })
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
   window.removeEventListener('resize', resize)
+  window.removeEventListener('pointermove', onPointerMove)
 })
 </script>
 

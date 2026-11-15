@@ -1,14 +1,9 @@
 <script setup lang="ts">
-import '@fontsource/space-grotesk/latin-400.css'
-import '@fontsource/space-grotesk/latin-500.css'
-import '@fontsource/space-grotesk/latin-600.css'
-import '@fontsource/manrope/latin-400.css'
-import '@fontsource/manrope/latin-500.css'
-import '@fontsource/manrope/latin-600.css'
 import { computed, ref } from 'vue'
 import type { TerrainResults } from '../shared/terrain'
-import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, searchSites, studiesFor, TERRAIN_FEATURES, type Planet } from '~/data/places'
+import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, searchSites, studiesFor, type Planet } from '~/data/places'
 
+const { locale, t } = useI18n()
 const selected = ref<Planet | null>(null)
 const zoom = ref(0)
 const mapTarget = ref<{ lat: number; lon: number } | null>(null)
@@ -61,7 +56,7 @@ async function findTerrain() {
     })
     if (!request.signal.aborted) terrainResults.value = result
   } catch {
-    if (!request.signal.aborted) terrainError.value = 'The terrain index could not be searched. Try again in a moment.'
+    if (!request.signal.aborted) terrainError.value = t('searchError')
   } finally {
     if (!request.signal.aborted) terrainLoading.value = false
   }
@@ -72,18 +67,20 @@ const pointActive = ref(0)
 const form = ref(blankForm())
 
 const studies = computed(() => studiesFor(selected.value))
+function studyTitle(id: string) {
+  return id === 'rover-testing' ? t(`study.${id}.${selected.value ?? 'moon'}`) : t(`study.${id}.title`)
+}
+function studyDetail(id: string) { return t(`study.${id}.detail`) }
 const resolved = computed(() => resolvePoint(selected.value, form.value.pointQuery))
 const activeStudy = computed(() => studies.value.find(study => study.id === form.value.studyId) ?? null)
 const studyLabel = computed(() => {
   if (form.value.studyId === 'other') return form.value.studyOther.trim()
-  return activeStudy.value?.title ?? ''
+  return activeStudy.value ? studyTitle(activeStudy.value.id) : ''
 })
 const pointHint = computed(() => selected.value === 'mars'
-  ? 'Enter latitude first, then longitude. Example: 18.445, 77.451'
-  : 'Enter latitude first, then longitude. Example: 0.674, 23.473')
+  ? t('pointHintMars') : t('pointHintMoon'))
 const pointPlaceholder = computed(() => selected.value === 'mars'
-  ? 'Jezero or 18.445, 77.451'
-  : 'Apollo 11 or 0.674, 23.473')
+  ? t('pointPlaceholderMars') : t('pointPlaceholderMoon'))
 
 const suggestions = computed(() => {
   const planet = selected.value
@@ -93,7 +90,7 @@ const suggestions = computed(() => {
   if (coords) {
     const typed = formatCoordinates(coords.lat, coords.lon, planet)
     return [
-      { key: 'coords', title: 'Use these coordinates', meta: typed, query: typed },
+      { key: 'coords', title: t('useCoordinates'), meta: typed, query: typed },
       ...nearestSites(planet, coords, 3).map(site => ({
         key: site.name,
         title: site.name,
@@ -113,12 +110,11 @@ const suggestions = computed(() => {
 const pointError = computed(() => {
   if (!(triedSubmit.value || triedSearch.value) || resolved.value) return ''
   return form.value.pointQuery.trim()
-    ? 'Use a listed name, or latitude and longitude such as 18.445°N, 77.451°E.'
-    : 'Mark a point by name or by coordinates.'
+    ? t('pointInvalid') : t('pointMissing')
 })
 const studyError = computed(() => {
   if (!triedSubmit.value || studyLabel.value) return ''
-  return form.value.studyId === 'other' ? 'Describe what matters for your research.' : 'Choose a study, or Other.'
+  return form.value.studyId === 'other' ? t('customMissing') : t('studyMissing')
 })
 function formatResolved(lat: number, lon: number) {
   return selected.value ? formatCoordinates(lat, lon, selected.value) : ''
@@ -250,10 +246,10 @@ function finishIntro() {
 }
 
 useHead({
-  htmlAttrs: { lang: 'en' },
-  title: 'NASA — Choose the Moon or Mars',
+  htmlAttrs: { lang: locale },
+  title: () => t('title'),
   meta: [
-    { name: 'description', content: 'Explore the Moon and Mars in an interactive 3D atlas.' },
+    { name: 'description', content: () => t('description') },
     { name: 'theme-color', content: '#000000' },
   ],
   link: [{ rel: 'icon', type: 'image/svg+xml', href: '/nasa-logo.svg' }],
@@ -267,15 +263,15 @@ useHead({
   <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars' }">
     <NuxtRouteAnnouncer />
 
-    <ClientOnly><Starfield :orbit="skyRotation" /></ClientOnly>
+    <ClientOnly><Starfield :orbit="skyRotation" :parallax="!selected && !introActive" /></ClientOnly>
     <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
 
     <header v-if="selected" class="site-header">
-      <a class="brand" href="/" aria-label="Back to planet selection" @click.prevent="goBack">
+      <a class="brand" href="/"  :aria-label="t('backDestinations')" @click.prevent="goBack">
         <img class="brand-logo" src="/nasa-logo.svg" alt="NASA" />
-        <span class="brand-name">NASA x AEZAKMI</span>
+        <span class="brand-cross" aria-hidden="true">×</span><img class="brand-aezakmi" src="/aezakmi-logo.svg" alt="AEZAKMI" />
       </a>
     </header>
 
@@ -288,12 +284,12 @@ useHead({
       <div class="map-scale__bar" :class="{ 'has-three-segments': mapScale.segments === 3 }" aria-hidden="true" />
     </div>
     <div v-if="selected" class="planet-instruction">
-      <span>Drag to rotate</span>
-      <span>Scroll to zoom</span>
+      <span>{{ t('rotate') }}</span>
+      <span>{{ t('zoom') }}</span>
     </div>
 
     <button v-if="selected && zoom > 0 && !sourceRevealed" type="button" class="surface-credit is-compact"
-      aria-label="Show NASA data source" @click="sourceRevealed = true">
+      :aria-label="t('showSource')" @click="sourceRevealed = true">
       <span class="surface-credit__icon" aria-hidden="true">i</span>
     </button>
     <a v-else-if="selected" class="surface-credit"
@@ -301,30 +297,30 @@ useHead({
       :aria-label="selected === 'moon' ? 'NASA / JPL data from Moon Trek' : 'NASA / JPL data from Mars Trek'"
       :title="selected === 'moon' ? 'NASA / JPL Moon Trek' : 'NASA / JPL Mars Trek'">
       <span class="surface-credit__icon" aria-hidden="true">i</span>
-      <span class="surface-credit__label" aria-hidden="true">NASA Data</span>
+      <span class="surface-credit__label" aria-hidden="true">{{ t('nasaData') }}</span>
     </a>
-    <div v-if="selected" class="planet-zoom" role="group" aria-label="Surface zoom">
-      <button type="button" aria-label="Zoom in" :disabled="zoom >= maxZoom" @click="changeZoom(1)">+</button>
-      <button type="button" aria-label="Zoom out" :disabled="zoom === 0" @click="changeZoom(-1)">−</button>
+    <div v-if="selected" class="planet-zoom" role="group" :aria-label="t('surfaceZoom')">
+      <button type="button" :aria-label="t('zoomIn')" :disabled="zoom >= maxZoom" @click="changeZoom(1)">+</button>
+      <button type="button" :aria-label="t('zoomOut')" :disabled="zoom === 0" @click="changeZoom(-1)">−</button>
     </div>
 
     <Transition name="home-content">
       <main v-if="!selected" class="home-content" :inert="introActive">
-        <h1 class="home-title">CHOOSE A<br class="mobile-title-break"> PLANET<span class="period">.</span></h1>
+        <h1 class="home-title">{{ t('choosePlanet') }}<span class="period">.</span></h1>
 
-        <div class="planet-choices" aria-label="Choose a destination">
-          <button class="planet-choice planet-choice--moon" type="button" aria-label="Choose the Moon" @click="selectPlanet('moon')">
+        <div class="planet-choices" :aria-label="t('chooseDestination')">
+          <button class="planet-choice planet-choice--moon" type="button" :aria-label="t('moon')" @click="selectPlanet('moon')">
             <span class="planet-choice__ring" aria-hidden="true" />
             <span class="planet-choice__label">
-              <span class="planet-choice__title">MOON</span>
-              <span class="planet-choice__subtitle">EARTH'S MOON</span>
+              <span class="planet-choice__title">{{ t('moon') }}</span>
+              <span class="planet-choice__subtitle">{{ t('earthMoon') }}</span>
             </span>
           </button>
-          <button class="planet-choice planet-choice--mars" type="button" aria-label="Choose Mars" @click="selectPlanet('mars')">
+          <button class="planet-choice planet-choice--mars" type="button" :aria-label="t('mars')" @click="selectPlanet('mars')">
             <span class="planet-choice__ring" aria-hidden="true" />
             <span class="planet-choice__label">
-              <span class="planet-choice__title">MARS</span>
-              <span class="planet-choice__subtitle">THE RED PLANET</span>
+              <span class="planet-choice__title">{{ t('mars') }}</span>
+              <span class="planet-choice__subtitle">{{ t('redPlanet') }}</span>
             </span>
           </button>
         </div>
@@ -335,13 +331,13 @@ useHead({
       <main v-if="selected" class="mission-panel">
         <button class="back-button" type="button" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12H4m0 0 6-6m-6 6 6 6" stroke="currentColor" stroke-width="1.5" /></svg>
-          BACK TO DESTINATIONS
+          {{ t('backDestinations') }}
         </button>
 
         <div class="mission-content">
           <form class="mission-form" @submit.prevent="submitForm">
-              <section class="point-block" aria-label="Map search">
-                <label class="point-label" for="map-point">Choose a place on the map</label>
+              <section class="point-block" :aria-label="t('mapSearch')">
+                <label class="point-label" for="map-point">{{ t('choosePlace') }}</label>
                 <div class="point-search-box">
                 <div class="point-search-row">
                   <input
@@ -363,10 +359,10 @@ useHead({
                     @input="onPointInput"
                     @keydown="onPointKeydown"
                   />
-                  <button type="button" class="point-search" @click="searchPoint">Find</button>
+                  <button type="button" class="point-search" @click="searchPoint">{{ t('find') }}</button>
                 </div>
                 <ul v-show="pointOpen && !resolved?.named" id="point-menu" class="point-menu" role="listbox">
-                  <li v-if="!suggestions.length" class="point-empty">No place with that name. Enter coordinates.</li>
+                  <li v-if="!suggestions.length" class="point-empty">{{ t('noPlace') }}</li>
                   <li v-for="(suggestion, index) in suggestions" :key="suggestion.key" role="presentation">
                     <button
                       :id="`point-opt-${index}`"
@@ -393,7 +389,7 @@ useHead({
               </section>
 
               <div class="study-field">
-                <p class="field-kicker" id="study-label"><b>What will you use the site for?</b></p>
+                <p class="field-kicker" id="study-label"><b>{{ t('studyQuestion') }}</b></p>
                 <div class="study-grid" role="radiogroup" aria-labelledby="study-label">
                   <button
                     v-for="study in studies"
@@ -405,7 +401,7 @@ useHead({
                     :aria-checked="form.studyId === study.id"
                     @click="chooseStudy(study.id)"
                   >
-                    {{ study.title }}
+                    {{ studyTitle(study.id) }}
                   </button>
                 </div>
                 <button
@@ -415,24 +411,24 @@ useHead({
                   :aria-pressed="form.studyId === 'other'"
                   @click="chooseStudy('other')"
                 >
-                  Describe another use
+                  {{ t('otherUse') }}
                   <span>+</span>
                 </button>
-                <p v-if="activeStudy" class="study-detail">{{ activeStudy.detail }}</p>
+                <p v-if="activeStudy" class="study-detail">{{ studyDetail(activeStudy.id) }}</p>
                 <div v-if="activeStudy?.priorities?.length" class="criteria-review terrain-priorities">
-                  <strong>Terrain priorities</strong>
-                  <ol><li v-for="feature in activeStudy.priorities" :key="feature">{{ TERRAIN_FEATURES[feature] }}</li></ol>
+                  <strong>{{ t('terrainPriorities') }}</strong>
+                  <ol><li v-for="feature in activeStudy.priorities" :key="feature">{{ t(`feature.${feature}`) }}</li></ol>
                 </div>
                 <div v-if="form.studyId === 'other'" class="custom-research">
                   <label class="other-label">
-                    <span>What are you testing or studying?</span>
+                    <span>{{ t('customQuestion') }}</span>
                     <textarea v-model.trim="form.studyOther" name="study-other" rows="3" maxlength="600"
-                      placeholder="Example: Test rover stability. Slope matters most, then surface roughness." required />
+                      :placeholder="t('customPlaceholder')" required />
                   </label>
                 </div>
                 <p v-if="studyError" class="field-error">{{ studyError }}</p>
               </div>
-              <button class="submit-button" type="submit">Find Earth analogues <span class="submit-arrow" aria-hidden="true"></span></button>
+              <button class="submit-button" type="submit">{{ t('findAnalogues') }} <span class="submit-arrow" aria-hidden="true"></span></button>
           </form>
         </div>
 

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { TerrainMatch } from '../../shared/terrain'
 
+const { t } = useI18n()
 const props = defineProps<{ site: TerrainMatch; step: number; radius: number }>()
 const service = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
 const adjustment = ref(0)
@@ -53,20 +54,20 @@ function changeZoom(delta: number) {
 <template>
   <figure class="satellite">
     <div v-if="map" class="satellite__frame">
-      <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Satellite map with the ranked terrain window outlined">
+      <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" role="img" :aria-label="t('results.satelliteMap')">
         <image v-for="tile in map.tiles" :key="tile.url + tile.x" :href="tile.url" :x="tile.x" :y="tile.y"
           width="256" height="256" @error="failures++" />
         <polygon :points="map.polygon" fill="#8dc9ff" fill-opacity=".17" stroke="#bde5ff" stroke-width="2" vector-effect="non-scaling-stroke" />
         <circle cx="400" cy="300" r="4.5" fill="#fff" stroke="#192e45" stroke-width="2" />
       </svg>
-      <div class="satellite__zoom" aria-label="Satellite zoom" role="group">
-        <button type="button" aria-label="Zoom in" :disabled="adjustment === 2" @click="changeZoom(1)">+</button>
-        <button type="button" aria-label="Zoom out" :disabled="adjustment === -2" @click="changeZoom(-1)">−</button>
+      <div class="satellite__zoom" :aria-label="t('surfaceZoom')" role="group">
+        <button type="button" :aria-label="t('zoomIn')" :disabled="adjustment === 2" @click="changeZoom(1)">+</button>
+        <button type="button" :aria-label="t('zoomOut')" :disabled="adjustment === -2" @click="changeZoom(-1)">−</button>
       </div>
-      <p v-if="failures" class="satellite__notice">Some imagery tiles are unavailable.</p>
+      <p v-if="failures" class="satellite__notice">{{ t('results.imageryUnavailable') }}</p>
     </div>
-    <p v-else class="satellite__notice">This site lies beyond the polar coverage of the satellite basemap.</p>
-    <figcaption>Outlined terrain window · {{ step / 1000 }} × {{ step / 1000 }} km
+    <p v-else class="satellite__notice">{{ t('results.polarUnavailable') }}</p>
+    <figcaption>{{ t('results.outlinedWindow') }} · {{ step / 1000 }} × {{ step / 1000 }} km
       <a :href="service" target="_blank" rel="noopener noreferrer">Imagery © Esri, Vantor, Earthstar Geographics, GIS User Community ↗</a>
     </figcaption>
   </figure>

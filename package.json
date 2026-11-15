@@ -11,14 +11,15 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@fontsource/manrope": "^5.3.0",
-    "@fontsource/space-grotesk": "^5.3.0",
     "nuxt": "npm:nuxt-nightly@5x",
     "three": "^0.187.0",
     "vue": "^3.5.43",
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
-    "@types/three": "^0.187.0"
+    "@nuxt/fonts": "^1.2.0",
+    "@nuxtjs/i18n": "^10.6.0",
+    "@types/three": "^0.187.0",
+    "geist": "^1.9.2"
   }
 }

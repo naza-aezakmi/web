@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Planet } from '~/data/places'
 import { trekLayers } from '~/utils/sphericalTiles'
 
+const { t } = useI18n()
 const props = defineProps<{
   planet: Planet
   center: { lat: number; lon: number }
@@ -85,7 +86,7 @@ onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <template>
-  <section class="trek-map" aria-label="NASA Trek surface map">
+  <section class="trek-map" :aria-label="t('mapSearch')">
     <div ref="surface" class="trek-map__tiles" :class="{ 'is-dragging': dragging }"
       @pointerdown="start" @pointermove="move" @pointerup="end" @pointercancel="cancel" @lostpointercapture="cancel">
       <div class="trek-map__fallback" :style="{
@@ -98,7 +99,7 @@ onBeforeUnmount(() => observer?.disconnect())
           :style="{ left: tile.left + 'px', top: tile.top + 'px' }"
           alt="" draggable="false" @error="($event.currentTarget as HTMLImageElement).style.visibility = 'hidden'" />
       </div>
-      <span class="trek-map__pin" aria-hidden="true">+</span>
+      <img class="trek-map__pin" src="/nasa-flag.svg" alt="" aria-hidden="true" />
     </div>
     <footer><a :href="'https://trek.nasa.gov/' + planet + '/'" target="_blank" rel="noopener">NASA / JPL {{ planet === 'moon' ? 'Moon Trek' : 'Mars Trek' }} ↗</a></footer>
   </section>

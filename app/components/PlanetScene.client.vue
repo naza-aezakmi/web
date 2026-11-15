@@ -1,5 +1,6 @@
 <template>
   <div ref="container" class="planet-scene">
+    <img ref="flagOverlay" class="surface-flag" src="/nasa-flag.svg" alt="" aria-hidden="true" />
     <div class="lunar-labels" :aria-label="selected === 'mars' ? 'Martian landmarks' : 'Lunar landmarks'">
       <button v-for="label in labels" :key="label.name" type="button" class="lunar-label"
         :class="'lunar-label--' + label.tier"
@@ -49,6 +50,7 @@ type Body = {
 const props = defineProps<{ selected: Planet | null; zoom: number; point: { lat: number; lon: number } | null; target: { lat: number; lon: number } | null }>()
 const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }]; landmark: [name: string]; zoom: [event: WheelEvent]; orbit: [rotation: [number, number, number, number]]; scale: [value: { kilometers: number; pixels: number; segments: number }] }>()
 const container = ref<HTMLElement | null>(null)
+const flagOverlay = ref<HTMLImageElement | null>(null)
 const webglFailed = ref(false)
 type SurfaceLabel = { name: string; kind: string; lat: number; lon: number; tier: 'primary' | 'regional' | 'local'; x: number; y: number; width: number; availableWidth: number; angle: number }
 const labels = shallowRef<SurfaceLabel[]>([])
@@ -98,6 +100,8 @@ const bodies = {} as Record<Planet, Body>
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
 const viewAxis = new THREE.Vector3(0, 0, 1)
+const flagPosition = new THREE.Vector3()
+const flagNormal = new THREE.Vector3()
 const rollRotation = new THREE.Quaternion()
 const localCenter = new THREE.Vector3()
 const inverseRotation = new THREE.Quaternion()
@@ -160,15 +164,12 @@ function createBody(planet: Planet): Body {
   scene!.add(mesh)
 
   const marker = new THREE.Group()
-  const markerRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.035, 0.052, 32),
-    new THREE.MeshBasicMaterial({ color: 0xc9e3ff, side: THREE.DoubleSide, depthTest: true }),
+  const markerBase = new THREE.Mesh(
+    new THREE.CircleGeometry(0.024, 20),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: true }),
   )
-  const markerDot = new THREE.Mesh(
-    new THREE.SphereGeometry(0.022, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0x398dff, depthTest: true }),
-  )
-  marker.add(markerRing, markerDot)
+  markerBase.position.z = 0.025
+  marker.add(markerBase)
   marker.visible = false
   mesh.add(marker)
 
@@ -202,7 +203,6 @@ function updateMarker() {
     )
     body.marker.position.copy(normal).multiplyScalar(1.001)
     body.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
-    ;(body.marker.children[1] as THREE.Mesh).position.z = 0.018
   }
   requestRender()
 }
@@ -264,10 +264,21 @@ function targetPose(planet: Planet): Omit<Pose, 'turn'> {
     ? Math.min(height * 0.22, width * 0.4)
     : Math.min(height * 0.46, width * 0.38)
   const zoomScale = props.zoom < 2 ? [1, 1.35][props.zoom]! : 1.9 * 2 ** (props.zoom - 2)
-  return { ...selectedPosition, radius: pixelToWorld(selectedRadiusPx * zoomScale), opacity: 1, roll: 0 }
+  const selectedRadius = pixelToWorld(selectedRadiusPx * zoomScale)
+  if (props.point && props.zoom >= 2 && bodies[planet]) {
+    const markerOffset = bodies[planet].marker.position.clone().applyQuaternion(bodies[planet].mesh.quaternion)
+    return {
+      x: selectedPosition.x - markerOffset.x * selectedRadius,
+      y: selectedPosition.y - markerOffset.y * selectedRadius,
+      radius: selectedRadius,
+      opacity: 1,
+      roll: 0,
+    }
+  }
+  return { ...selectedPosition, radius: selectedRadius, opacity: 1, roll: 0 }
 }
 
-function arrange(animate: boolean, spinSelected = false) {
+function arrange(animate: boolean, spin = 0, spinningPlanet: Planet | null = props.selected) {
   if (!renderer) return
   for (const planet of PLANETS) {
     const body = bodies[planet]
@@ -275,12 +286,12 @@ function arrange(animate: boolean, spinSelected = false) {
     body.from = clonePose(body.pose)
     body.to = {
       ...target,
-      turn: body.pose.turn + (spinSelected && props.selected === planet ? Math.PI * 1.55 : 0),
+      turn: body.pose.turn + (spinningPlanet === planet ? spin * Math.PI * 1.55 : 0),
     }
     if (!animate || isReducedMotion) body.pose = clonePose(body.to)
   }
   transitionStart = performance.now()
-  transitionDuration = animate && !isReducedMotion ? (spinSelected || !props.selected ? 1350 : 600) : 0
+  transitionDuration = animate && !isReducedMotion ? (spin || !props.selected ? 1350 : 600) : 0
   requestRender()
 }
 
@@ -356,6 +367,37 @@ function updateLabels() {
   labels.value = visible
 }
 
+function updateFlagOverlay() {
+  const flag = flagOverlay.value
+  const planet = props.selected
+  if (!flag || !planet || !props.point || !camera || !bodies[planet]) {
+    if (flag) flag.style.visibility = 'hidden'
+    return
+  }
+  const body = bodies[planet]
+  body.mesh.updateMatrixWorld(true)
+  body.marker.getWorldPosition(flagPosition)
+  flagNormal.copy(body.marker.position).applyQuaternion(body.mesh.quaternion)
+  if (flagNormal.z <= 0.02 || body.pose.opacity < 0.1) {
+    flag.style.visibility = 'hidden'
+    return
+  }
+  flagPosition.project(camera)
+  const x = (flagPosition.x + 1) * viewport.width / 2
+  const y = (1 - flagPosition.y) * viewport.height / 2
+  // Lean the pole outward with the surface normal and foreshorten the cloth.
+  const a = 0.68 + 0.32 * flagNormal.z
+  const b = -flagNormal.x * 0.08
+  const c = -flagNormal.x * 0.52
+  const d = 0.9 + 0.1 * flagNormal.z
+  const anchorX = 7.2
+  const anchorY = 72.2
+  flag.style.transform = `matrix(${a}, ${b}, ${c}, ${d}, ${-a * anchorX - c * anchorY}, ${-b * anchorX - d * anchorY})`
+  flag.style.left = `${x}px`
+  flag.style.top = `${y}px`
+  flag.style.visibility = x >= -80 && x <= viewport.width + 80 && y >= -80 && y <= viewport.height + 80 ? 'visible' : 'hidden'
+}
+
 function updateSky() {
   const planet = props.selected
   if (planet !== skyPlanet) {
@@ -412,6 +454,7 @@ function frame(now: number) {
   const active = props.selected ? bodies[props.selected] : null
   camera.position.z = Math.max(20, (active?.pose.radius ?? 0) + 20)
   renderer.render(scene, camera)
+  updateFlagOverlay()
   updateLabels()
   updateSky()
   if (props.selected) updateScale(props.selected)
@@ -576,7 +619,7 @@ onMounted(() => {
 })
 
 watch(() => props.selected, (selected, previous) => {
-  arrange(true, selected !== null && selected !== previous)
+  arrange(true, selected ? 1 : previous ? -1 : 0, selected ?? previous)
   updateMarker()
 })
 watch(() => props.zoom, () => arrange(true))
@@ -640,6 +683,17 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
+.surface-flag {
+  position: absolute;
+  z-index: 3;
+  width: 72px;
+  height: 77px;
+  transform-origin: top left;
+  pointer-events: none;
+  visibility: hidden;
+  filter: drop-shadow(0 2px 3px #05070bcc);
+}
+
 .lunar-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .lunar-label {
   position: absolute;
@@ -652,7 +706,7 @@ onBeforeUnmount(() => {
   border: 0;
   background: transparent;
   color: #eaf0f5;
-  font: 600 10px/1.2 Manrope, Arial, sans-serif;
+  font: 600 10px/1.2 Geist, Arial, sans-serif;
   text-shadow: 0 1px 3px #000;
   white-space: nowrap;
   pointer-events: auto;

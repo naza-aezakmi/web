@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+const { t } = useI18n()
 const props = defineProps<{ source: number[]; sourceName: string; earth: number[]; size: number; rotation: number }>()
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, signDisplay: 'exceptZero' })
 
@@ -16,8 +17,8 @@ const heightScale = computed(() => Math.max(1, ...reference.value.map(Math.abs),
 const residualScale = computed(() => Math.max(1, ...residuals.value.map(Math.abs)))
 const matrices = computed(() => [
   { label: props.sourceName, values: reference.value, scale: heightScale.value },
-  { label: 'Earth · aligned', values: terrestrial.value, scale: heightScale.value },
-  { label: 'Earth − ' + props.sourceName, values: residuals.value, scale: residualScale.value },
+  { label: t('results.earthAligned'), values: terrestrial.value, scale: heightScale.value },
+  { label: t('results.earth') + ' − ' + props.sourceName, values: residuals.value, scale: residualScale.value },
 ])
 const mae = computed(() => residuals.value.reduce((sum, value) => sum + Math.abs(value), 0) / residuals.value.length)
 const maxError = computed(() => Math.max(...residuals.value.map(Math.abs)))
@@ -47,12 +48,12 @@ function cellStyle(value: number, scale: number) {
 
 <template>
   <section class="terrain-matrices">
-    <h3>Elevation matrices</h3>
-    <p>Height relative to each window’s mean, in metres. North is up on the {{ sourceName }} grid. The Earth grid is rotated {{ (4 - rotation) % 4 * 90 }}° clockwise for alignment.</p>
+    <h3>{{ t('results.elevationMatrices') }}</h3>
+    <p>{{ t('results.matrixDescription', { source: sourceName, rotation: (4 - rotation) % 4 * 90 }) }}</p>
     <div class="matrix-grid">
       <figure v-for="matrix in matrices" :key="matrix.label">
         <figcaption>{{ matrix.label }} <small>±{{ Math.ceil(matrix.scale) }} m</small></figcaption>
-        <table :aria-label="matrix.label + ' elevation grid in metres'">
+        <table :aria-label="t('results.elevationGrid', { name: matrix.label })">
           <tbody>
             <tr v-for="row in size" :key="row">
               <td v-for="col in size" :key="col" :style="cellStyle(matrix.values[(row - 1) * size + col - 1]!, matrix.scale)">
@@ -64,13 +65,13 @@ function cellStyle(value: number, scale: number) {
       </figure>
     </div>
     <dl class="matrix-evidence">
-      <div><dt>Mean absolute difference</dt><dd>{{ metric.format(mae) }} m</dd></div>
-      <div><dt>Largest sample difference</dt><dd>{{ metric.format(maxError) }} m</dd></div>
+      <div><dt>{{ t('results.meanDifference') }}</dt><dd>{{ metric.format(mae) }} m</dd></div>
+      <div><dt>{{ t('results.largestSample') }}</dt><dd>{{ metric.format(maxError) }} m</dd></div>
       <div>
-        <dt>Pearson correlation</dt>
-        <dd>{{ correlation === null ? 'Undefined (flat grid)' : correlationNumber.format(correlation) }}</dd>
+        <dt>{{ t('results.pearson') }}</dt>
+        <dd>{{ correlation === null ? t('results.undefined') : correlationNumber.format(correlation) }}</dd>
       </div>
-      <div><dt>Sample pairs compared</dt><dd>{{ residuals.length }}</dd></div>
+      <div><dt>{{ t('results.samplePairs') }}</dt><dd>{{ residuals.length }}</dd></div>
     </dl>
   </section>
 </template>
