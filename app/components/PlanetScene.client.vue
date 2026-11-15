@@ -1,5 +1,14 @@
 <template>
   <div ref="container" class="planet-scene">
+    <div class="lunar-labels" :aria-label="selected === 'mars' ? 'Martian landmarks' : 'Lunar landmarks'">
+      <button v-for="label in labels" :key="label.name" type="button" class="lunar-label"
+        :class="'lunar-label--' + label.tier"
+        :style="{ left: label.x + 'px', top: label.y + 'px', maxWidth: label.availableWidth + 'px', '--label-angle': label.angle + 'deg' }"
+        :title="label.kind + ' · ' + formatCoordinates(label.lat, label.lon, selected ?? 'moon')"
+        @wheel="onWheel" @click="emit('landmark', label.name)">
+        <span>{{ label.name }}</span>
+      </button>
+    </div>
     <template v-if="webglFailed">
       <div
         class="fallback-planet fallback-planet--moon"
@@ -16,11 +25,13 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import * as THREE from 'three'
+import { createSphericalTiles } from '~/utils/sphericalTiles'
+import { formatCoordinates, MARS_FEATURES, MARS_LANDMARKS, MOON_FEATURES, MOON_LANDMARKS, MOON_MISSIONS } from '~/data/places'
 
 type Planet = 'moon' | 'mars'
-type Pose = { x: number; y: number; radius: number; opacity: number; turn: number }
+type Pose = { x: number; y: number; radius: number; opacity: number; turn: number; roll: number }
 type Body = {
   mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>
   material: THREE.MeshStandardMaterial
@@ -32,12 +43,37 @@ type Body = {
   from: Pose
   to: Pose
   texture?: THREE.Texture
+  tiles: ReturnType<typeof createSphericalTiles>
 }
 
-const props = defineProps<{ selected: Planet | null; point: { lat: number; lon: number } | null }>()
-const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }] }>()
+const props = defineProps<{ selected: Planet | null; zoom: number; point: { lat: number; lon: number } | null; target: { lat: number; lon: number } | null }>()
+const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }]; landmark: [name: string]; zoom: [event: WheelEvent]; orbit: [rotation: [number, number, number, number]]; scale: [value: { kilometers: number; pixels: number; segments: number }] }>()
 const container = ref<HTMLElement | null>(null)
 const webglFailed = ref(false)
+type SurfaceLabel = { name: string; kind: string; lat: number; lon: number; tier: 'primary' | 'regional' | 'local'; x: number; y: number; width: number; availableWidth: number; angle: number }
+const labels = shallowRef<SurfaceLabel[]>([])
+const projectedLabel = new THREE.Vector3()
+const labelTangent = new THREE.Vector3()
+const surfacePoints = {
+  moon: [
+    ...MOON_MISSIONS.map(site => ({ ...site, diameter: 0, mission: true, notable: true })),
+    ...MOON_FEATURES.map(site => ({ ...site, mission: false, notable: MOON_LANDMARKS.has(site.name) })),
+  ].map(projectSite),
+  mars: [
+    ...MARS_LANDMARKS.map(site => ({ ...site, diameter: 0, mission: true, notable: true })),
+    ...MARS_FEATURES.map(site => ({ ...site, mission: false, notable: false })),
+  ].map(projectSite),
+}
+
+function projectSite<T extends { lat: number; lon: number }>(site: T) {
+  const latitude = THREE.MathUtils.degToRad(site.lat)
+  const longitude = THREE.MathUtils.degToRad(site.lon)
+  return {
+    ...site,
+    normal: new THREE.Vector3(Math.cos(latitude) * Math.cos(longitude), Math.sin(latitude), -Math.cos(latitude) * Math.sin(longitude)),
+    east: new THREE.Vector3(-Math.sin(longitude), 0, -Math.cos(longitude)),
+  }
+}
 
 const VISIBLE_HEIGHT = 10
 const PLANETS: Planet[] = ['moon', 'mars']
@@ -51,6 +87,7 @@ let resizeObserver: ResizeObserver | null = null
 let motionQuery: MediaQueryList | null = null
 let raf = 0
 let lastFrame = 0
+let settleUntil = 0
 let transitionStart = 0
 let transitionDuration = 0
 let disposed = false
@@ -60,6 +97,35 @@ let viewport = { width: 1, height: 1 }
 const bodies = {} as Record<Planet, Body>
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
+const viewAxis = new THREE.Vector3(0, 0, 1)
+const rollRotation = new THREE.Quaternion()
+const localCenter = new THREE.Vector3()
+const inverseRotation = new THREE.Quaternion()
+const skyRotation = new THREE.Quaternion()
+const lastPlanetRotation = new THREE.Quaternion()
+const skyDelta = new THREE.Quaternion()
+let skyPlanet: Planet | null = null
+let lastScale = { kilometers: 0, pixels: 0, segments: 2 }
+
+function updateScale(planet: Planet) {
+  const radiusPixels = bodies[planet].pose.radius * viewport.height / VISIBLE_HEIGHT
+  const radiusKm = planet === 'moon' ? 1737.4 : 3389.5
+  const targetDistance = 2 * radiusKm * Math.asin(Math.min(.75, 75 / radiusPixels))
+  function roundedDistance(segments: number) {
+    const targetSegment = targetDistance / segments
+    const magnitude = 10 ** Math.floor(Math.log10(targetSegment))
+    const step = targetSegment / magnitude
+    return segments * magnitude * (step >= 5 ? 5 : step >= 2.5 ? 2.5 : step >= 2 ? 2 : 1)
+  }
+  const two = roundedDistance(2)
+  const three = roundedDistance(3)
+  const segments = three > two ? 3 : 2
+  const kilometers = segments === 3 ? three : two
+  const pixels = Math.round(2 * radiusPixels * Math.sin(kilometers / (2 * radiusKm)))
+  if (pixels === lastScale.pixels && kilometers === lastScale.kilometers && segments === lastScale.segments) return
+  lastScale = { kilometers, pixels, segments }
+  emit('scale', lastScale)
+}
 
 function clonePose(pose: Pose): Pose {
   return { ...pose }
@@ -70,8 +136,9 @@ function glowMap(): THREE.CanvasTexture {
   canvas.width = canvas.height = 128
   const context = canvas.getContext('2d')!
   const gradient = context.createRadialGradient(64, 64, 25, 64, 64, 64)
-  gradient.addColorStop(0, 'rgba(255,255,255,0.62)')
-  gradient.addColorStop(0.48, 'rgba(255,255,255,0.16)')
+  gradient.addColorStop(0, 'rgba(255,255,255,0.72)')
+  gradient.addColorStop(0.38, 'rgba(255,255,255,0.5)')
+  gradient.addColorStop(0.65, 'rgba(255,255,255,0.09)')
   gradient.addColorStop(1, 'rgba(255,255,255,0)')
   context.fillStyle = gradient
   context.fillRect(0, 0, 128, 128)
@@ -95,11 +162,11 @@ function createBody(planet: Planet): Body {
   const marker = new THREE.Group()
   const markerRing = new THREE.Mesh(
     new THREE.RingGeometry(0.035, 0.052, 32),
-    new THREE.MeshBasicMaterial({ color: 0xfff1ce, side: THREE.DoubleSide, depthTest: true }),
+    new THREE.MeshBasicMaterial({ color: 0xc9e3ff, side: THREE.DoubleSide, depthTest: true }),
   )
   const markerDot = new THREE.Mesh(
     new THREE.SphereGeometry(0.022, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0xff604f, depthTest: true }),
+    new THREE.MeshBasicMaterial({ color: 0x398dff, depthTest: true }),
   )
   marker.add(markerRing, markerDot)
   marker.visible = false
@@ -107,7 +174,7 @@ function createBody(planet: Planet): Body {
 
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glowTexture,
-    color: moon ? 0x8aaad1 : 0xd87a49,
+    color: moon ? 0xcbdced : 0xd87a49,
     transparent: true,
     opacity: 0.12,
     blending: THREE.AdditiveBlending,
@@ -116,8 +183,8 @@ function createBody(planet: Planet): Body {
   glow.position.z = -0.7
   scene!.add(glow)
 
-  const initial: Pose = { x: 0, y: 0, radius: 1, opacity: 1, turn: 0 }
-  return { mesh, material, glow, marker, yaw: 0, pitch: 0, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial) }
+  const initial: Pose = { x: 0, y: 0, radius: 1, opacity: 1, turn: 0, roll: 0 }
+  return { mesh, material, glow, marker, yaw: 0, pitch: 0, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial), tiles: createSphericalTiles(planet, mesh, requestRender) }
 }
 
 function updateMarker() {
@@ -133,11 +200,11 @@ function updateMarker() {
       Math.cos(theta),
       Math.sin(phi) * Math.sin(theta),
     )
-    body.marker.position.copy(normal).multiplyScalar(1.035)
+    body.marker.position.copy(normal).multiplyScalar(1.001)
     body.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
     ;(body.marker.children[1] as THREE.Mesh).position.z = 0.018
   }
-  render()
+  requestRender()
 }
 
 function loadTexture(planet: Planet, url: string) {
@@ -153,11 +220,9 @@ function loadTexture(planet: Planet, url: string) {
       const body = bodies[planet]
       body.texture = texture
       body.material.map = texture
-      body.material.bumpMap = texture
-      body.material.bumpScale = planet === 'moon' ? 0.045 : 0.025
-      body.material.color.set(planet === 'moon' ? 0xffffff : 0xffd7c9)
+      body.material.color.set(0xffffff)
       body.material.needsUpdate = true
-      render()
+      requestRender()
     },
     undefined,
     () => {
@@ -189,16 +254,17 @@ function targetPose(planet: Planet): Omit<Pose, 'turn'> {
     : Math.min(height * 0.17, width * 0.16, 190)
   const radius = pixelToWorld(baseRadiusPx * (planet === 'mars' ? 1.04 : 1))
 
-  if (!props.selected) return { ...atRest, radius, opacity: 1 }
+  if (!props.selected) return { ...atRest, radius, opacity: 1, roll: 0 }
   if (props.selected !== planet) {
-    return { ...atRest, radius: radius * 0.72, opacity: 0 }
+    return { ...atRest, radius: radius * 0.72, opacity: 0, roll: 0 }
   }
 
-  const selectedPosition = mobile ? point(0.5, 0.3) : point(0.75, 0.52)
+  const selectedPosition = mobile ? point(0.5, 0.35) : point(0.65, 0.54)
   const selectedRadiusPx = mobile
-    ? Math.min(height * 0.18, width * 0.29)
-    : Math.min(height * 0.31, width * 0.22)
-  return { ...selectedPosition, radius: pixelToWorld(selectedRadiusPx), opacity: 1 }
+    ? Math.min(height * 0.22, width * 0.4)
+    : Math.min(height * 0.46, width * 0.38)
+  const zoomScale = props.zoom < 2 ? [1, 1.35][props.zoom]! : 1.9 * 2 ** (props.zoom - 2)
+  return { ...selectedPosition, radius: pixelToWorld(selectedRadiusPx * zoomScale), opacity: 1, roll: 0 }
 }
 
 function arrange(animate: boolean, spinSelected = false) {
@@ -214,36 +280,107 @@ function arrange(animate: boolean, spinSelected = false) {
     if (!animate || isReducedMotion) body.pose = clonePose(body.to)
   }
   transitionStart = performance.now()
-  transitionDuration = animate && !isReducedMotion ? 1350 : 0
-  if (isReducedMotion) render()
+  transitionDuration = animate && !isReducedMotion ? (spinSelected || !props.selected ? 1350 : 600) : 0
+  requestRender()
 }
 
-function applyPose(body: Body, now: number, phase: number) {
-  const bob = !isReducedMotion && !props.selected ? Math.sin(now * 0.00075 + phase) * 0.045 : 0
-  body.mesh.position.set(body.pose.x, body.pose.y + bob, 0)
+function applyPose(body: Body) {
+  body.mesh.position.set(body.pose.x, body.pose.y, 0)
   body.mesh.scale.setScalar(body.pose.radius)
-  body.mesh.rotation.x = (body.mesh.userData.planet === 'moon' ? 0.07 : 0.19) + body.pitch
-  body.mesh.rotation.y = (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn + body.yaw
+  const radiusPx = body.pose.radius * viewport.height / VISIBLE_HEIGHT
+  body.marker.scale.setScalar(Math.min(1, 125 / radiusPx))
+  body.mesh.rotation.set(
+    (body.mesh.userData.planet === 'moon' ? 0.07 : 0.19) + body.pitch,
+    (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn + body.yaw,
+    0,
+  )
+  body.mesh.quaternion.premultiply(rollRotation.setFromAxisAngle(viewAxis, body.pose.roll))
   body.material.opacity = body.pose.opacity
   body.mesh.visible = body.pose.opacity > 0.005
 
-  body.glow.position.set(body.pose.x, body.pose.y + bob, -0.7)
-  body.glow.scale.set(body.pose.radius * 3.35, body.pose.radius * 3.35, 1)
-  ;(body.glow.material as THREE.SpriteMaterial).opacity = body.pose.opacity * (props.selected ? 0.09 : 0.15)
+  const isMoon = body.mesh.userData.planet === 'moon'
+  const haloOpacity = isMoon ? 0.52 / (1 + props.zoom * .55) : 0.12
+  body.glow.position.set(body.pose.x, body.pose.y, -body.pose.radius - 0.1)
+  const haloSize = body.pose.radius * (isMoon ? 2.65 : 3.35)
+  body.glow.scale.set(haloSize, haloSize, 1)
+  ;(body.glow.material as THREE.SpriteMaterial).opacity = body.pose.opacity * haloOpacity
   body.glow.visible = body.pose.opacity > 0.005
 }
 
-function render(now = performance.now()) {
-  if (!renderer || !scene || !camera) return
-  applyPose(bodies.moon, now, 0)
-  applyPose(bodies.mars, now, Math.PI)
-  renderer.render(scene, camera)
+function updateLabels() {
+  const planet = props.selected
+  if (!planet || props.zoom === 0 || !camera) {
+    if (labels.value.length) labels.value = []
+    return
+  }
+  const body = bodies[planet]
+  const pixelsPerUnit = viewport.height / VISIBLE_HEIGHT
+  const radius = body.pose.radius * pixelsPerUnit
+  const sidebar = container.value?.parentElement?.querySelector('.mission-panel')?.getBoundingClientRect()
+  const bounds = container.value?.getBoundingClientRect()
+  if (!bounds) return
+  const previous = new Set(labels.value.map(label => label.name))
+  const candidates: (SurfaceLabel & { score: number })[] = []
+
+  for (const site of surfacePoints[planet]) {
+    projectedLabel.copy(site.normal).applyQuaternion(body.mesh.quaternion)
+    if (projectedLabel.z <= 0.005) continue
+    projectedLabel.copy(site.normal).applyMatrix4(body.mesh.matrixWorld).project(camera)
+    const x = (projectedLabel.x + 1) * bounds.width / 2
+    const y = (1 - projectedLabel.y) * bounds.height / 2
+    if (x < 0 || x > bounds.width || y < 0 || y > bounds.height) continue
+    const diameterPx = site.diameter * radius / (planet === 'moon' ? 1737.4 : 3389.5)
+    const wasVisible = previous.has(site.name)
+    if (!site.notable && diameterPx < (wasVisible ? 16 : 20)) continue
+    const tier = site.mission || site.notable || site.diameter >= 350 ? 'primary' : site.diameter >= 90 ? 'regional' : 'local'
+    const fontWidth = tier === 'primary' ? 7 : tier === 'regional' ? 6.5 : 5.8
+    const availableWidth = bounds.width - x - 2
+    const width = Math.min(site.name.length * fontWidth + 14, availableWidth)
+    if (y < 9 || y > bounds.height - 9 || width < 25) continue
+    if (sidebar && x + bounds.left < sidebar.right + 8 && x + bounds.left + width > sidebar.left
+      && y + bounds.top > sidebar.top - 12 && y + bounds.top < sidebar.bottom + 12) continue
+    const score = (tier === 'primary' ? 100 : tier === 'regional' ? 50 : 0) + Math.min(45, diameterPx) + (wasVisible ? 12 : 0)
+    labelTangent.copy(site.east).applyQuaternion(body.mesh.quaternion)
+    const angle = THREE.MathUtils.radToDeg(Math.atan2(-labelTangent.y, labelTangent.x))
+    const tilt = THREE.MathUtils.clamp(((angle + 270) % 180 - 90) * .1, -4, 4)
+    candidates.push({ ...site, x, y, width, availableWidth, score, tier, angle: tilt })
+  }
+  candidates.sort((a, b) => b.score - a.score)
+  const visible: typeof candidates = []
+  for (const label of candidates) {
+    const overlaps = visible.some(other => Math.abs(other.y - label.y) < 25
+      && other.x + other.width + 6 > label.x && label.x + label.width + 6 > other.x)
+    if (!overlaps) visible.push(label)
+    if (visible.length >= 20) break
+  }
+  labels.value = visible
+}
+
+function updateSky() {
+  const planet = props.selected
+  if (planet !== skyPlanet) {
+    skyPlanet = planet
+    if (planet) lastPlanetRotation.copy(bodies[planet].mesh.quaternion)
+    return
+  }
+  if (!planet) return
+  const rotation = bodies[planet].mesh.quaternion
+  if (rotation.equals(lastPlanetRotation)) return
+  // The sky moves opposite to the globe's change in screen-space orientation.
+  skyDelta.copy(rotation).invert().premultiply(lastPlanetRotation)
+  skyRotation.premultiply(skyDelta).normalize()
+  lastPlanetRotation.copy(rotation)
+  emit('orbit', [skyRotation.x, skyRotation.y, skyRotation.z, skyRotation.w])
+}
+
+function requestRender() {
+  if (!disposed && !raf) raf = requestAnimationFrame(frame)
 }
 
 function frame(now: number) {
-  if (disposed) return
-  raf = isReducedMotion ? 0 : requestAnimationFrame(frame)
-  const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0
+  raf = 0
+  if (disposed || !renderer || !scene || !camera) return
+  const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 1 / 60
   lastFrame = now
 
   if (transitionDuration > 0) {
@@ -251,21 +388,35 @@ function frame(now: number) {
     const eased = 1 - Math.pow(1 - t, 3)
     for (const planet of PLANETS) {
       const body = bodies[planet]
-      for (const key of ['x', 'y', 'radius', 'opacity', 'turn'] as const) {
+      for (const key of ['x', 'y', 'radius', 'opacity', 'turn', 'roll'] as const) {
         body.pose[key] = body.from[key] + (body.to[key] - body.from[key]) * eased
       }
     }
     if (t === 1) transitionDuration = 0
   }
 
-  if (!isReducedMotion) {
-    // A very slow surface rotation keeps both textured spheres visibly three dimensional.
-    if (!props.selected) {
-      bodies.moon.pose.turn += dt * 0.035
-      bodies.mars.pose.turn += dt * 0.045
-    }
+  let animatingTiles = false
+  for (const planet of PLANETS) {
+    const body = bodies[planet]
+    applyPose(body)
+    const level = Math.min(planet === 'moon' ? 8 : 7, props.zoom + 3)
+    const view = props.selected === planet ? {
+      level,
+      preload: level < (planet === 'moon' ? 8 : 7),
+      center: localCenter.copy(viewAxis).applyQuaternion(inverseRotation.copy(body.mesh.quaternion).invert()),
+      radius: body.pose.radius,
+      reach: Math.hypot(camera.right + Math.abs(body.pose.x), camera.top + Math.abs(body.pose.y)),
+    } : null
+    if (body.tiles.update(view, now, isReducedMotion ? 1 : dt / .32)) animatingTiles = true
   }
-  render(now)
+  const active = props.selected ? bodies[props.selected] : null
+  camera.position.z = Math.max(20, (active?.pose.radius ?? 0) + 20)
+  renderer.render(scene, camera)
+  updateLabels()
+  updateSky()
+  if (props.selected) updateScale(props.selected)
+  if (transitionDuration > 0 || animatingTiles || now < settleUntil) requestRender()
+  else lastFrame = 0
 }
 
 function resize() {
@@ -281,10 +432,11 @@ function resize() {
   camera.top = VISIBLE_HEIGHT / 2
   camera.bottom = -VISIBLE_HEIGHT / 2
   camera.updateProjectionMatrix()
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, viewport.width <= 760 ? 1.75 : 2))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.setSize(viewport.width, viewport.height, false)
   arrange(false)
-  render()
+  settleUntil = performance.now() + 100
+  requestRender()
 }
 
 function surfaceHit(event: PointerEvent): THREE.Intersection | null {
@@ -303,15 +455,29 @@ function hitTest(event: PointerEvent): Planet | null {
   return (surfaceHit(event)?.object.userData.planet as Planet | undefined) ?? null
 }
 
+function onWheel(event: WheelEvent) {
+  if (props.selected) {
+    event.preventDefault()
+    emit('zoom', event)
+  }
+}
+
 function onPointerMove(event: PointerEvent) {
   if (pointerDown?.planet && props.selected === pointerDown.planet) {
     const body = bodies[pointerDown.planet]
-    body.yaw += (event.clientX - pointerDown.lastX) * 0.008
-    body.pitch = THREE.MathUtils.clamp(body.pitch + (event.clientY - pointerDown.lastY) * 0.008, -1.55, 1.55)
+    const radiansPerPixel = VISIBLE_HEIGHT / (viewport.height * body.pose.radius)
+    const tilt = pointerDown.planet === 'moon' ? .07 : .19
+    const horizontalScale = Math.max(.18, Math.cos(body.pitch + tilt))
+    const dx = event.clientX - pointerDown.lastX
+    const dy = event.clientY - pointerDown.lastY
+    const pitchLimit = THREE.MathUtils.degToRad(pointerDown.planet === 'moon' ? 72 : 90)
+    body.yaw += dx * radiansPerPixel / horizontalScale
+    body.pitch = THREE.MathUtils.clamp(body.pitch + dy * radiansPerPixel, -pitchLimit - tilt, pitchLimit - tilt)
     pointerDown.lastX = event.clientX
     pointerDown.lastY = event.clientY
     if (renderer) renderer.domElement.style.cursor = 'grabbing'
-    render()
+    settleUntil = performance.now() + 100
+    requestRender()
     return
   }
   if (renderer) renderer.domElement.style.cursor = hitTest(event) ? (props.selected ? 'grab' : 'pointer') : 'default'
@@ -349,14 +515,9 @@ function onPointerCancel() {
 function onMotionChange(event: MediaQueryListEvent) {
   isReducedMotion = event.matches
   if (isReducedMotion) {
-    cancelAnimationFrame(raf)
-    raf = 0
     transitionDuration = 0
     for (const planet of PLANETS) bodies[planet].pose = clonePose(bodies[planet].to)
-    render()
-  } else if (!raf) {
-    lastFrame = 0
-    raf = requestAnimationFrame(frame)
+    requestRender()
   }
 }
 
@@ -368,7 +529,7 @@ onMounted(() => {
   motionQuery.addEventListener('change', onMotionChange)
 
   try {
-    renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' })
+    renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' })
     renderer.setClearColor(0x000000, 0)
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -382,17 +543,17 @@ onMounted(() => {
   }
 
   scene = new THREE.Scene()
-  camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100)
+  camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 10000)
   camera.position.set(0, 0, 20)
   camera.lookAt(0, 0, 0)
-  geometry = new THREE.SphereGeometry(1, 96, 64)
+  geometry = new THREE.SphereGeometry(1, 128, 96)
   glowTexture = glowMap()
 
-  scene.add(new THREE.AmbientLight(0x9eafc5, 1.05))
-  const sun = new THREE.DirectionalLight(0xfff2df, 2.5)
-  sun.position.set(-5, 3.5, 7)
+  scene.add(new THREE.AmbientLight(0xd5dfea, 1.25))
+  const sun = new THREE.DirectionalLight(0xfff5e9, 2.15)
+  sun.position.set(-3.5, 3, 8)
   scene.add(sun)
-  const rim = new THREE.DirectionalLight(0x7897c5, 0.5)
+  const rim = new THREE.DirectionalLight(0x9eafc5, 0.3)
   rim.position.set(5, -2, -3)
   scene.add(rim)
 
@@ -400,24 +561,36 @@ onMounted(() => {
   bodies.mars = createBody('mars')
   resize()
   updateMarker()
-  loadTexture('moon', '/textures/moon-color.jpg')
-  loadTexture('mars', '/textures/mars-color.jpg')
+  loadTexture('moon', '/textures/moon-trek-global.webp')
+  loadTexture('mars', '/textures/mars-trek-global.webp')
 
   renderer.domElement.addEventListener('pointermove', onPointerMove)
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointercancel', onPointerCancel)
+  renderer.domElement.addEventListener('wheel', onWheel, { passive: false })
   resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(container.value)
   window.addEventListener('resize', resize)
-  if (!isReducedMotion) raf = requestAnimationFrame(frame)
+  requestRender()
 })
 
 watch(() => props.selected, (selected, previous) => {
   arrange(true, selected !== null && selected !== previous)
   updateMarker()
 })
+watch(() => props.zoom, () => arrange(true))
 watch(() => [props.point?.lat, props.point?.lon], updateMarker)
+watch(() => props.target, target => {
+  const planet = props.selected
+  if (!planet || !target || !bodies[planet]) return
+  const body = bodies[planet]
+  const limit = planet === 'moon' ? 72 : 90
+  body.pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(target.lat, -limit, limit)) - (planet === 'moon' ? .07 : .19)
+  body.yaw = THREE.MathUtils.degToRad(-90 - target.lon) - (planet === 'moon' ? -.9 : .42) - body.pose.turn
+  settleUntil = performance.now() + 100
+  requestRender()
+})
 
 onBeforeUnmount(() => {
   disposed = true
@@ -427,6 +600,7 @@ onBeforeUnmount(() => {
   motionQuery?.removeEventListener('change', onMotionChange)
   if (renderer) {
     renderer.domElement.removeEventListener('pointermove', onPointerMove)
+    renderer.domElement.removeEventListener('wheel', onWheel)
     renderer.domElement.removeEventListener('pointerdown', onPointerDown)
     renderer.domElement.removeEventListener('pointerup', onPointerUp)
     renderer.domElement.removeEventListener('pointercancel', onPointerCancel)
@@ -437,6 +611,7 @@ onBeforeUnmount(() => {
   for (const planet of PLANETS) {
     const body = bodies[planet]
     if (!body) continue
+    body.tiles.dispose()
     body.texture?.dispose()
     body.material.dispose()
     body.marker.traverse(object => {
@@ -464,6 +639,30 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
 }
+
+.lunar-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.lunar-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transform: translate(-6.5px, -50%) rotate(var(--label-angle));
+  transform-origin: 6.5px center;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #eaf0f5;
+  font: 600 10px/1.2 Manrope, Arial, sans-serif;
+  text-shadow: 0 1px 3px #000;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.lunar-label::before { content: ''; width: 5px; height: 5px; box-sizing: border-box; flex: none; border: 1px solid currentColor; border-radius: 50%; box-shadow: 0 1px 3px #0008; }
+.lunar-label span { overflow: hidden; text-overflow: ellipsis; }
+.lunar-label--primary { color: #fff; font-size: 12px; font-weight: 750; }
+.lunar-label--regional { color: #e0e5eb; font-size: 11px; }
+.lunar-label--local { color: #b8c1cb; }
+.lunar-label:hover, .lunar-label:focus-visible { text-decoration: underline; outline-offset: 1px; }
 
 .fallback-planet {
   position: absolute;

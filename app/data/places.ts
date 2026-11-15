@@ -1,3 +1,6 @@
+import marsGazetteer from "./mars-gazetteer.json"
+import moonGazetteer from './moon-gazetteer.json'
+
 // Moon coordinates use the IAU Mean Earth / polar axis frame (the same one NASA
 // publishes for Apollo and Artemis): north latitude, east longitude −180…180.
 // Mars coordinates use planetocentric latitude and east longitude, shown 0…360°E.
@@ -12,10 +15,20 @@ export type Site = {
   aliases?: string[]
 }
 
+export const TERRAIN_FEATURES = {
+  profile: 'Terrain shape',
+  range: 'Elevation range',
+  slope: 'Slope',
+  roughness: 'Surface roughness',
+} as const
+
+type TerrainFeature = keyof typeof TERRAIN_FEATURES
+
 export type Study = {
   id: string
   title: string
   detail: string
+  priorities?: TerrainFeature[]
 }
 
 export type Coordinates = { lat: number; lon: number }
@@ -28,7 +41,7 @@ export type ResolvedPoint = {
   named: boolean
 }
 
-const moonSites: Site[] = [
+const featuredMoonSites: Site[] = [
   { name: 'Shackleton', kind: 'South pole', lat: -89.67, lon: 129.78, aliases: ['south pole', 'artemis'] },
   { name: 'Tranquility Base', kind: 'Apollo 11', lat: 0.67416, lon: 23.47314, aliases: ['apollo 11', 'tranquillity', 'sea of tranquility'] },
   { name: 'Taurus–Littrow', kind: 'Apollo 17', lat: 20.1911, lon: 30.7723, aliases: ['apollo 17', 'taurus littrow'] },
@@ -51,6 +64,25 @@ const moonSites: Site[] = [
   { name: 'Orientale', kind: 'Basin', lat: -19.4, lon: -92.8 },
 ]
 
+// IAU-approved feature centers and diameters from the USGS Gazetteer (LOLA 2011).
+export const MOON_FEATURES = (moonGazetteer as [string, string, number, number, number, number][])
+  .map(([name, kind, lat, lon, diameter, id]) => ({ name, kind, lat, lon, diameter, id }))
+const featuredNames = new Map(featuredMoonSites.map(site => [site.name, site]))
+export const MOON_MISSIONS: Site[] = [
+  ...featuredMoonSites.filter(site => site.kind.startsWith('Apollo')).map(site => ({
+    ...site, name: site.kind, kind: 'Landing site', aliases: [site.name, ...(site.aliases ?? [])],
+  })),
+  { name: 'Chang’e 4', kind: 'Landing site', lat: -45.4561, lon: 177.5885, aliases: ["Chang'e 4", 'Yutu-2'] },
+  { name: 'Chandrayaan-3', kind: 'Landing site', lat: -69.373, lon: 32.319, aliases: ['Vikram', 'Pragyan'] },
+]
+export const MOON_LANDMARKS = new Set(featuredNames.keys())
+const officialNames = new Set(MOON_FEATURES.map(site => site.name))
+const moonSites: Site[] = [
+  ...featuredMoonSites.filter(site => !officialNames.has(site.name) && !site.kind.startsWith('Apollo')),
+  ...MOON_MISSIONS,
+  ...MOON_FEATURES.map(site => ({ ...site, aliases: featuredNames.get(site.name)?.aliases })),
+]
+
 const marsSites: Site[] = [
   { name: 'Jezero', kind: 'Perseverance', lat: 18.4447, lon: 77.4508, aliases: ['perseverance', 'jezero crater', 'octavia e. butler'] },
   { name: 'Gale', kind: 'Curiosity', lat: -4.5895, lon: 137.4417, aliases: ['curiosity', 'gale crater', 'mount sharp', 'bradbury'] },
@@ -66,25 +98,28 @@ const marsSites: Site[] = [
   { name: 'Viking 2 Site', kind: 'Utopia Planitia', lat: 47.64, lon: 134.29, aliases: ['viking 2', 'viking'] },
 ]
 
-export const SITES: Record<Planet, Site[]> = { moon: moonSites, mars: marsSites }
+export const MARS_LANDMARKS = marsSites
+const pinnedMarsNames = new Set(MARS_LANDMARKS.map(site => site.name))
+export const MARS_FEATURES = (marsGazetteer as [string, string, number, number, number, number][])
+  .filter(([name]) => !pinnedMarsNames.has(name))
+  .map(([name, kind, lat, lon, diameter, id]) => ({ name, kind, lat, lon, diameter, id }))
 
-// Moon: the work Earth labs and Artemis planning actually center on.
-// Mars: the first five science objectives in the 2025 National Academies
-// report "A Science Strategy for the Human Exploration of Mars".
+export const SITES: Record<Planet, Site[]> = { moon: moonSites, mars: [...MARS_LANDMARKS, ...MARS_FEATURES] }
+
 export const STUDIES: Record<Planet, Study[]> = {
   moon: [
-    { id: 'ice', title: 'Polar water ice', detail: 'Ice in craters the Sun never reaches. Mapped by LRO, then tested in Earth labs.' },
-    { id: 'origin', title: 'Origin of the Moon', detail: 'Apollo samples kept on Earth, and the giant-impact model built from them.' },
-    { id: 'spa', title: 'South Pole–Aitken', detail: 'The oldest, deepest basin. The sample Earth laboratories want most.' },
-    { id: 'regolith', title: 'Regolith resources', detail: 'Oxygen and metals from the soil, rehearsed with lunar simulant on Earth.' },
-    { id: 'quakes', title: 'Moonquakes', detail: 'Apollo seismometers. The deep interior is still read from Earth.' },
+    { id: 'rover-testing', title: 'Lunar rover testing', detail: 'Prioritize slopes and uneven ground for a driving test.', priorities: ['slope', 'roughness', 'profile', 'range'] },
+    { id: 'eva-training', title: 'Astronaut field training', detail: 'Prioritize the slopes and elevation changes of a walking route.', priorities: ['slope', 'range', 'profile', 'roughness'] },
+    { id: 'landing-sensors', title: 'Landing sensor testing', detail: 'Prioritize landform shape and changes in elevation.', priorities: ['profile', 'range', 'slope', 'roughness'] },
+    { id: 'excavation', title: 'Excavation site layout', detail: 'Prioritize ground slope and local surface unevenness.', priorities: ['slope', 'roughness', 'range', 'profile'] },
+    { id: 'field-geology', title: 'Geology and sampling practice', detail: 'Prioritize similar landforms and relief along the traverse.', priorities: ['profile', 'range', 'roughness', 'slope'] },
   ],
   mars: [
-    { id: 'life', title: 'Search for life', detail: 'First objective in the 2025 National Academies Mars strategy: past or present life.' },
-    { id: 'water', title: 'Water and CO₂', detail: 'Where the rivers, ice, and the thick atmosphere went.' },
-    { id: 'geology', title: 'Geologic record', detail: 'Volcanoes, impacts, and the layered rocks rovers send home to Earth.' },
-    { id: 'crew', title: 'Effect on crew', detail: 'How the Martian environment changes body, mind, and a team. Ranked fourth.' },
-    { id: 'dust', title: 'Dust storms', detail: 'What starts the storms that wrap the whole planet. Ranked fifth.' },
+    { id: 'rover-testing', title: 'Mars rover testing', detail: 'Prioritize slopes and uneven ground for a driving test.', priorities: ['slope', 'roughness', 'profile', 'range'] },
+    { id: 'eva-training', title: 'Astronaut field training', detail: 'Prioritize the slopes and elevation changes of a walking route.', priorities: ['slope', 'range', 'profile', 'roughness'] },
+    { id: 'landing-sensors', title: 'Landing sensor testing', detail: 'Prioritize landform shape and changes in elevation.', priorities: ['profile', 'range', 'slope', 'roughness'] },
+    { id: 'excavation', title: 'Excavation site layout', detail: 'Prioritize ground slope and local surface unevenness.', priorities: ['slope', 'roughness', 'range', 'profile'] },
+    { id: 'field-geology', title: 'Geology and sampling practice', detail: 'Prioritize similar landforms and relief along the traverse.', priorities: ['profile', 'range', 'roughness', 'slope'] },
   ],
 }
 
@@ -97,26 +132,30 @@ function normalizeLongitude(lon: number): number | null {
 }
 
 export function parseCoordinates(raw: string): Coordinates | null {
-  const text = raw.trim().replace(/[º˚]/g, '°').replace(/,/g, ' ').replace(/\s+/g, ' ')
-  if (!text) return null
-
-  const withHemisphere = text.match(/^(-?\d+(?:\.\d+)?)\s*°?\s*([ns])\s+(-?\d+(?:\.\d+)?)\s*°?\s*([ew])$/i)
-  if (withHemisphere) {
-    let lat = Math.abs(Number(withHemisphere[1]))
-    let lon = Math.abs(Number(withHemisphere[3]))
-    if (withHemisphere[2].toUpperCase() === 'S') lat = -lat
-    if (withHemisphere[4].toUpperCase() === 'W') lon = -lon
-    if (lat < -90 || lat > 90) return null
-    const normalized = normalizeLongitude(lon)
-    if (normalized == null) return null
-    return { lat, lon: normalized }
+  const text = raw.trim().toLowerCase().replace(/[º˚]/g, '°').replace(/−/g, '-').replace(/,/g, ' ').replace(/\s+/g, ' ')
+  const directions: Record<string, string> = { north: 'n', south: 's', east: 'e', west: 'w', 'север': 'n', 'юг': 's', 'восток': 'e', 'запад': 'w' }
+  const normalizedText = text.replace(/north|south|east|west|север|юг|восток|запад/g, direction => directions[direction]!)
+  const angle = String.raw`[+-]?\d+(?:\.\d+)?`
+  const coordinate = String.raw`(?:([nsew])\s*(${angle})\s*°?|(${angle})\s*°?\s*([nsew]))`
+  const directed = normalizedText.match(new RegExp(String.raw`^${coordinate}\s*${coordinate}$`))
+  if (directed) {
+    const first = directed[1] ?? directed[4]
+    const second = directed[5] ?? directed[8]
+    const firstValue = Math.abs(Number(directed[2] ?? directed[3]))
+    const secondValue = Math.abs(Number(directed[6] ?? directed[7]))
+    const firstIsLat = first === 'n' || first === 's'
+    if (firstIsLat === (second === 'n' || second === 's')) return null
+    const latDirection = firstIsLat ? first : second
+    const lonDirection = firstIsLat ? second : first
+    const lat = (firstIsLat ? firstValue : secondValue) * (latDirection === 's' ? -1 : 1)
+    const lon = normalizeLongitude((firstIsLat ? secondValue : firstValue) * (lonDirection === 'w' ? -1 : 1))
+    return Math.abs(lat) <= 90 && lon != null ? { lat, lon } : null
   }
 
-  if (/[a-z]/i.test(text)) return null
-  const numbers = text.match(/-?\d+(?:\.\d+)?/g)
-  if (!numbers || numbers.length !== 2) return null
-  const lat = Number(numbers[0])
-  const lon = Number(numbers[1])
+  const numbers = text.match(new RegExp(String.raw`^(${angle})\s*°?\s+(${angle})\s*°?$`))
+  if (!numbers) return null
+  const lat = Number(numbers[1])
+  const lon = Number(numbers[2])
   if (lat < -90 || lat > 90) return null
   const normalized = normalizeLongitude(lon)
   if (normalized == null) return null
@@ -148,19 +187,43 @@ export function distanceKm(planet: Planet, a: Coordinates, b: Coordinates): numb
   return 2 * RADIUS_KM[planet] * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
+function normalizeSearch(text: string): string {
+  return text.normalize('NFKD').toLowerCase().replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i]
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(current[j - 1]! + 1, previous[j]! + 1, previous[j - 1]! + Number(a[i - 1] !== b[j - 1]))
+    }
+    previous = current
+  }
+  return previous[b.length]!
+}
+
 export function searchSites(planet: Planet, query: string): Site[] {
-  const q = query.trim().toLowerCase()
+  const q = normalizeSearch(query)
   const sites = SITES[planet]
-  if (!q) return sites.slice(0, 6)
+  if (!q) return query.trim() ? [] : sites.filter(site => site.name === (planet === 'moon' ? 'Apollo 11' : 'Jezero')).slice(0, 1)
+  const apolloQuery = planet === 'moon' ? q.match(/^([a-z]+)(\d+)$/) : null
+  const missionMatch = apolloQuery && editDistance(apolloQuery[1]!, 'apollo') <= 3 ? 'apollo' + apolloQuery[2] : null
+  const maxEdits = q.length >= 7 ? 2 : q.length >= 4 ? 1 : 0
   return sites
     .map((site, index) => {
-      const name = site.name.toLowerCase()
-      const haystack = [name, site.kind.toLowerCase(), ...(site.aliases ?? []).map(alias => alias.toLowerCase())]
+      const name = normalizeSearch(site.name)
+      const aliases = (site.aliases ?? []).map(normalizeSearch)
       let score = 0
       if (name === q) score = 100
+      else if (aliases.includes(q) || name === missionMatch) score = 90
       else if (name.startsWith(q)) score = 80
       else if (name.includes(q)) score = 60
-      else if (haystack.some(part => part.includes(q))) score = 40
+      else if (aliases.some(alias => alias.includes(q)) || normalizeSearch(site.kind).includes(q)) score = 40
+      else if (maxEdits && Math.abs(name.length - q.length) <= maxEdits) {
+        const distance = editDistance(name, q)
+        if (distance <= maxEdits) score = 25 - distance * 5
+      }
       return { site, index, score }
     })
     .filter(item => item.score > 0)
@@ -181,9 +244,8 @@ export function resolvePoint(planet: Planet | null, query: string): ResolvedPoin
   const trimmed = query.trim()
   if (!trimmed) return null
   const folded = trimmed.toLowerCase()
-  const site = SITES[planet].find(item =>
-    item.name.toLowerCase() === folded
-    || item.aliases?.some(alias => alias.toLowerCase() === folded))
+  const site = SITES[planet].find(item => item.name.toLowerCase() === folded)
+    ?? SITES[planet].find(item => item.aliases?.some(alias => alias.toLowerCase() === folded))
   if (site) return { title: site.name, kind: site.kind, lat: site.lat, lon: site.lon, named: true }
   const coords = parseCoordinates(trimmed)
   if (!coords) return null

@@ -6,20 +6,70 @@ import '@fontsource/manrope/latin-400.css'
 import '@fontsource/manrope/latin-500.css'
 import '@fontsource/manrope/latin-600.css'
 import { computed, ref } from 'vue'
-import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, searchSites, studiesFor, type Planet } from '~/data/places'
+import type { TerrainResults } from '../shared/terrain'
+import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, searchSites, studiesFor, TERRAIN_FEATURES, type Planet } from '~/data/places'
 
 const selected = ref<Planet | null>(null)
+const zoom = ref(0)
+const mapTarget = ref<{ lat: number; lon: number } | null>(null)
+const triedSearch = ref(false)
+const mapScale = ref({ kilometers: 0, pixels: 0, segments: 2 })
+const numberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+const sourceRevealed = ref(false)
+const skyRotation = ref<[number, number, number, number]>([0, 0, 0, 1])
+
+function moveStars(rotation: [number, number, number, number]) {
+  skyRotation.value = rotation
+}
+const maxZoom = computed(() => selected.value === 'moon' ? 8 : 6)
+let lastWheelZoom = -Infinity
 const introActive = ref(true)
 const introVisible = ref(true)
-const submitted = ref(false)
+const showTerrainResults = ref(false)
+const terrainResults = ref<TerrainResults | null>(null)
+const terrainLoading = ref(false)
+const terrainError = ref('')
+let terrainAbort: AbortController | undefined
+
+function closeTerrainResults() {
+  terrainAbort?.abort()
+  showTerrainResults.value = false
+  focusResult()
+}
+
+async function findTerrain() {
+  const point = resolved.value
+  if (!point || !selected.value) return
+  terrainAbort?.abort()
+  const request = new AbortController()
+  terrainAbort = request
+  showTerrainResults.value = true
+  terrainResults.value = null
+  terrainError.value = ''
+  terrainLoading.value = true
+  try {
+    const result = await $fetch<TerrainResults>('/api/terrain-search', {
+      method: 'POST',
+      body: {
+        planet: selected.value,
+        lat: point.lat,
+        lon: point.lon,
+        priorities: activeStudy.value?.priorities,
+        objective: form.value.studyId === 'other' ? form.value.studyOther : undefined,
+      },
+      signal: request.signal,
+    })
+    if (!request.signal.aborted) terrainResults.value = result
+  } catch {
+    if (!request.signal.aborted) terrainError.value = 'The terrain index could not be searched. Try again in a moment.'
+  } finally {
+    if (!request.signal.aborted) terrainLoading.value = false
+  }
+}
 const triedSubmit = ref(false)
 const pointOpen = ref(false)
 const pointActive = ref(0)
-const form = ref({ name: '', email: '', pointQuery: '', studyId: '', studyOther: '' })
-
-const currentPlanet = computed(() => selected.value === 'moon'
-  ? { name: 'The Moon', number: '01', type: "EARTH'S MOON" }
-  : { name: 'Mars', number: '02', type: 'THE RED PLANET' })
+const form = ref(blankForm())
 
 const studies = computed(() => studiesFor(selected.value))
 const resolved = computed(() => resolvePoint(selected.value, form.value.pointQuery))
@@ -29,11 +79,11 @@ const studyLabel = computed(() => {
   return activeStudy.value?.title ?? ''
 })
 const pointHint = computed(() => selected.value === 'mars'
-  ? 'IAU name, or planetocentric latitude and 0–360° east longitude'
-  : 'IAU name, or Mean Earth latitude and east longitude')
+  ? 'Enter latitude first, then longitude. Example: 18.445, 77.451'
+  : 'Enter latitude first, then longitude. Example: 0.674, 23.473')
 const pointPlaceholder = computed(() => selected.value === 'mars'
-  ? 'Jezero or 18.445°N, 77.451°E'
-  : 'Shackleton or 89.67°S, 129.78°E')
+  ? 'Jezero or 18.445, 77.451'
+  : 'Apollo 11 or 0.674, 23.473')
 
 const suggestions = computed(() => {
   const planet = selected.value
@@ -61,35 +111,46 @@ const suggestions = computed(() => {
 })
 
 const pointError = computed(() => {
-  if (!triedSubmit.value || resolved.value) return ''
+  if (!(triedSubmit.value || triedSearch.value) || resolved.value) return ''
   return form.value.pointQuery.trim()
     ? 'Use a listed name, or latitude and longitude such as 18.445°N, 77.451°E.'
     : 'Mark a point by name or by coordinates.'
 })
 const studyError = computed(() => {
   if (!triedSubmit.value || studyLabel.value) return ''
-  return form.value.studyId === 'other' ? 'Name the other study.' : 'Choose a study, or Other.'
+  return form.value.studyId === 'other' ? 'Describe what matters for your research.' : 'Choose a study, or Other.'
 })
-const successSummary = computed(() => {
-  const point = resolved.value
-  if (!point || !selected.value || !studyLabel.value) return ''
-  return `${point.title} · ${formatCoordinates(point.lat, point.lon, selected.value)}. Study: ${studyLabel.value}.`
-})
-
 function formatResolved(lat: number, lon: number) {
   return selected.value ? formatCoordinates(lat, lon, selected.value) : ''
 }
 
 function blankForm() {
-  return { name: '', email: '', pointQuery: '', studyId: '', studyOther: '' }
+  return { pointQuery: '', studyId: '', studyOther: '' }
 }
 
 function selectPlanet(planet: Planet) {
+  zoom.value = 0
+  mapTarget.value = null
+  triedSearch.value = false
   selected.value = planet
-  submitted.value = false
   triedSubmit.value = false
   pointOpen.value = false
   form.value = blankForm()
+}
+
+function changeZoom(direction: number) {
+  const nextZoom = Math.min(maxZoom.value, Math.max(0, zoom.value + direction))
+  if (nextZoom === zoom.value) return
+  zoom.value = nextZoom
+  sourceRevealed.value = false
+}
+
+function wheelZoom(event: WheelEvent) {
+  if (Math.abs(event.deltaY) < Math.abs(event.deltaX) || !event.deltaY || event.metaKey) return
+  const now = performance.now()
+  if (now - lastWheelZoom < 180) return
+  lastWheelZoom = now
+  changeZoom(event.deltaY < 0 ? 1 : -1)
 }
 
 function markPoint(point: { planet: Planet; lat: number; lon: number }) {
@@ -99,19 +160,26 @@ function markPoint(point: { planet: Planet; lat: number; lon: number }) {
   triedSubmit.value = false
 }
 
+function markLandmark(name: string) {
+  form.value.pointQuery = name
+  pointOpen.value = false
+  triedSubmit.value = false
+}
+
 function goBack() {
+  zoom.value = 0
   selected.value = null
-  submitted.value = false
 }
 
 function submitForm() {
   triedSubmit.value = true
   if (!resolved.value || !studyLabel.value) return
   pointOpen.value = false
-  submitted.value = true
+  void findTerrain()
 }
 
 function onPointInput() {
+  triedSearch.value = false
   pointOpen.value = true
   pointActive.value = 0
 }
@@ -126,7 +194,22 @@ function chooseSuggestion(index: number) {
   const suggestion = suggestions.value[index]
   if (!suggestion) return
   form.value.pointQuery = suggestion.query
+  focusResult()
+}
+
+function focusResult() {
+  triedSearch.value = true
+  const point = resolved.value
+  if (!point) return
   pointOpen.value = false
+  mapTarget.value = { lat: point.lat, lon: point.lon }
+  zoom.value = selected.value === 'moon' && Math.abs(point.lat) > 72 ? 2 : Math.max(zoom.value, 2)
+  sourceRevealed.value = false
+}
+
+function searchPoint() {
+  if (resolved.value || !suggestions.value.length || !form.value.pointQuery.trim()) focusResult()
+  else chooseSuggestion(pointActive.value)
 }
 
 function onPointKeydown(event: KeyboardEvent) {
@@ -143,15 +226,17 @@ function onPointKeydown(event: KeyboardEvent) {
     pointActive.value = (pointActive.value + step + count) % count
     return
   }
-  if (event.key === 'Enter' && pointOpen.value && suggestions.value.length) {
+  if (event.key === 'Enter') {
     event.preventDefault()
-    chooseSuggestion(pointActive.value)
+    if (pointOpen.value && pointActive.value > 0) chooseSuggestion(pointActive.value)
+    else searchPoint()
     return
   }
   if (event.key === 'Escape') pointOpen.value = false
 }
 
 function chooseStudy(id: string) {
+  if (form.value.studyId === id) return
   form.value.studyId = id
 }
 
@@ -169,30 +254,59 @@ useHead({
   title: 'NASA — Choose the Moon or Mars',
   meta: [
     { name: 'description', content: 'Explore the Moon and Mars in an interactive 3D atlas.' },
-    { name: 'theme-color', content: '#050506' },
+    { name: 'theme-color', content: '#000000' },
   ],
   link: [{ rel: 'icon', type: 'image/svg+xml', href: '/nasa-logo.svg' }],
 })
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars' }">
+  <TerrainSearchResults v-if="showTerrainResults" :reference="resolved ? resolved.title + ' · ' + formatResolved(resolved.lat, resolved.lon) : ''"
+    :planet="selected ?? 'moon'" :objective="studyLabel" :results="terrainResults" :loading="terrainLoading" :error="terrainError"
+    @edit="closeTerrainResults" @retry="findTerrain" />
+  <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars' }">
     <NuxtRouteAnnouncer />
 
-    <ClientOnly><Starfield /></ClientOnly>
-    <div class="ambient-shade" aria-hidden="true" />
-    <div class="screen-grain" aria-hidden="true" />
-    <ClientOnly><PlanetScene :selected="selected" :point="resolved ? { lat: resolved.lat, lon: resolved.lon } : null" @select="selectPlanet" @mark="markPoint" /></ClientOnly>
+    <ClientOnly><Starfield :orbit="skyRotation" /></ClientOnly>
+    <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
 
     <header v-if="selected" class="site-header">
       <a class="brand" href="/" aria-label="Back to planet selection" @click.prevent="goBack">
         <img class="brand-logo" src="/nasa-logo.svg" alt="NASA" />
+        <span class="brand-name">NASA x AEZAKMI</span>
       </a>
     </header>
 
-    <p v-if="selected" class="planet-instruction">DRAG TO ROTATE <span>·</span> CLICK TO MARK</p>
+    <div v-if="selected && mapScale.kilometers" class="map-scale" :style="{ width: mapScale.pixels + 'px' }">
+      <div class="map-scale__numbers">
+        <span v-for="index in mapScale.segments + 1" :key="index" :style="{ left: (index - 1) / mapScale.segments * 100 + '%' }">
+          {{ numberFormat.format(mapScale.kilometers * (index - 1) / mapScale.segments) }}{{ index === mapScale.segments + 1 ? ' km' : '' }}
+        </span>
+      </div>
+      <div class="map-scale__bar" :class="{ 'has-three-segments': mapScale.segments === 3 }" aria-hidden="true" />
+    </div>
+    <div v-if="selected" class="planet-instruction">
+      <span>Drag to rotate</span>
+      <span>Scroll to zoom</span>
+    </div>
+
+    <button v-if="selected && zoom > 0 && !sourceRevealed" type="button" class="surface-credit is-compact"
+      aria-label="Show NASA data source" @click="sourceRevealed = true">
+      <span class="surface-credit__icon" aria-hidden="true">i</span>
+    </button>
+    <a v-else-if="selected" class="surface-credit"
+      :href="'https://trek.nasa.gov/' + selected + '/'" target="_blank" rel="noopener"
+      :aria-label="selected === 'moon' ? 'NASA / JPL data from Moon Trek' : 'NASA / JPL data from Mars Trek'"
+      :title="selected === 'moon' ? 'NASA / JPL Moon Trek' : 'NASA / JPL Mars Trek'">
+      <span class="surface-credit__icon" aria-hidden="true">i</span>
+      <span class="surface-credit__label" aria-hidden="true">NASA Data</span>
+    </a>
+    <div v-if="selected" class="planet-zoom" role="group" aria-label="Surface zoom">
+      <button type="button" aria-label="Zoom in" :disabled="zoom >= maxZoom" @click="changeZoom(1)">+</button>
+      <button type="button" aria-label="Zoom out" :disabled="zoom === 0" @click="changeZoom(-1)">−</button>
+    </div>
 
     <Transition name="home-content">
       <main v-if="!selected" class="home-content" :inert="introActive">
@@ -225,31 +339,13 @@ useHead({
         </button>
 
         <div class="mission-content">
-          <p class="mission-overline"><span class="mission-overline__line" /> MISSION {{ currentPlanet.number }} <span>/ {{ currentPlanet.type }}</span></p>
-          <h2>EXPLORE<br><span>{{ currentPlanet.name.toUpperCase() }}<i>.</i></span></h2>
-          <p class="mission-description">Drag the planet to explore its surface, then click to mark a point. You can also enter a location below.</p>
-
-          <Transition name="form-swap" mode="out-in">
-            <div v-if="submitted" class="form-success" role="status">
-              <div class="form-success__mark">✓</div>
-              <h3>COURSE<br>CHARTED.</h3>
-              <p class="form-success__course">{{ successSummary }}</p>
-              <p>Demo form complete. Your information was not sent anywhere.</p>
-              <button type="button" @click="submitted = false">EDIT DETAILS <span>↗</span></button>
-            </div>
-            <form v-else class="mission-form" @submit.prevent="submitForm">
-              <label>
-                <span>01 <b>YOUR NAME</b></span>
-                <input v-model.trim="form.name" type="text" name="name" autocomplete="name" placeholder="What should we call you?" required />
-              </label>
-              <label>
-                <span>02 <b>EMAIL ADDRESS</b></span>
-                <input v-model.trim="form.email" type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
-              </label>
-              <div class="point-block">
-                <label class="point-label">
-                  <span>03 <b>SURFACE POINT</b></span>
+          <form class="mission-form" @submit.prevent="submitForm">
+              <section class="point-block" aria-label="Map search">
+                <label class="point-label" for="map-point">Choose a place on the map</label>
+                <div class="point-search-box">
+                <div class="point-search-row">
                   <input
+                    id="map-point"
                     v-model="form.pointQuery"
                     type="text"
                     name="point"
@@ -267,7 +363,8 @@ useHead({
                     @input="onPointInput"
                     @keydown="onPointKeydown"
                   />
-                </label>
+                  <button type="button" class="point-search" @click="searchPoint">Find</button>
+                </div>
                 <ul v-show="pointOpen && !resolved?.named" id="point-menu" class="point-menu" role="listbox">
                   <li v-if="!suggestions.length" class="point-empty">No place with that name. Enter coordinates.</li>
                   <li v-for="(suggestion, index) in suggestions" :key="suggestion.key" role="presentation">
@@ -286,19 +383,20 @@ useHead({
                     </button>
                   </li>
                 </ul>
-                <p class="field-hint">{{ pointHint }}</p>
+                </div>
+                <p v-if="!form.pointQuery.trim()" class="field-hint">{{ pointHint }}</p>
                 <p v-if="resolved" class="point-readout">
                   <b>{{ resolved.title }}</b>
                   <span>{{ formatResolved(resolved.lat, resolved.lon) }}</span>
                 </p>
                 <p v-if="pointError" class="field-error">{{ pointError }}</p>
-              </div>
+              </section>
 
               <div class="study-field">
-                <p class="field-kicker" id="study-label">04 <b>STUDIED ON EARTH</b></p>
+                <p class="field-kicker" id="study-label"><b>What will you use the site for?</b></p>
                 <div class="study-grid" role="radiogroup" aria-labelledby="study-label">
                   <button
-                    v-for="(study, index) in studies"
+                    v-for="study in studies"
                     :key="study.id"
                     type="button"
                     role="radio"
@@ -307,7 +405,6 @@ useHead({
                     :aria-checked="form.studyId === study.id"
                     @click="chooseStudy(study.id)"
                   >
-                    <em>{{ String(index + 1).padStart(2, '0') }}</em>
                     {{ study.title }}
                   </button>
                 </div>
@@ -318,21 +415,27 @@ useHead({
                   :aria-pressed="form.studyId === 'other'"
                   @click="chooseStudy('other')"
                 >
-                  OTHER
+                  Describe another use
                   <span>+</span>
                 </button>
                 <p v-if="activeStudy" class="study-detail">{{ activeStudy.detail }}</p>
-                <label v-if="form.studyId === 'other'" class="other-label">
-                  <input v-model.trim="form.studyOther" type="text" name="study-other" placeholder="Name the study" required />
-                </label>
+                <div v-if="activeStudy?.priorities?.length" class="criteria-review terrain-priorities">
+                  <strong>Terrain priorities</strong>
+                  <ol><li v-for="feature in activeStudy.priorities" :key="feature">{{ TERRAIN_FEATURES[feature] }}</li></ol>
+                </div>
+                <div v-if="form.studyId === 'other'" class="custom-research">
+                  <label class="other-label">
+                    <span>What are you testing or studying?</span>
+                    <textarea v-model.trim="form.studyOther" name="study-other" rows="3" maxlength="600"
+                      placeholder="Example: Test rover stability. Slope matters most, then surface roughness." required />
+                  </label>
+                </div>
                 <p v-if="studyError" class="field-error">{{ studyError }}</p>
               </div>
-              <button class="submit-button" type="submit">BEGIN EXPEDITION <span>↗</span></button>
-            </form>
-          </Transition>
+              <button class="submit-button" type="submit">Find Earth analogues <span class="submit-arrow" aria-hidden="true"></span></button>
+          </form>
         </div>
 
-        <div class="mission-footnote">NASA / MISSION CONTROL <span>© 2026</span></div>
       </main>
     </Transition>
   </div>
