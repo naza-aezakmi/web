@@ -32,7 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build Nuxt application
-        run: pnpm build
+        run: |
+          pnpm test:model
+          pnpm build
 
   publish:
     needs: build

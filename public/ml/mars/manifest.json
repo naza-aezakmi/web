@@ -1,0 +1,8 @@
+{
+  "model": "Mars terrain analogs",
+  "format": 1,
+  "files": {
+    "mars_types.json": "e59c4ab1963209551dc301c24598ededa4316e43d3867f5b65abb6dfc5e3c086",
+    "mars_types_grid.bin": "43c9497cd54c08fcff1b9f577ea2f7e53f0c5307dae625ef6c07a1f8d55c7a29"
+  }
+}

@@ -4,6 +4,16 @@
 
 An interactive Moon and Mars explorer built with Nuxt, Vue, Three.js, and a Canvas starfield. Select a planet, choose a location and field study, then compare its terrain with ranked Earth analogues. On phones, drag to rotate, pinch to zoom, and tap the surface to place the NASA flag.
 
+## Mars ML click integration
+
+Select **Mars** and click anywhere on its surface, click a named landmark, or enter coordinates and press **Find**. A panel opens on the left half of the desktop screen (a scrollable bottom panel on phones). It shows the trained terrain type, three Earth candidates, administrative region/country, exact coordinates, live Esri satellite imagery and an external Earth map link. The comparison table and expandable explanation show why the terrain was selected, plus cover and separate climate context. Close the panel or press Escape to return to the form. The globe remains available for the next click.
+
+The two model assets in `public/ml/mars` load once; subsequent clicks are local lookups. The card does not need an API key, sklearn, OpenAI, or the separate API service. Satellite imagery requires an internet connection and has a readable fallback with a working map link. It is an overhead satellite view of the candidate coordinate, not a stock landscape photograph.
+
+The authoritative model and export script live in the sibling `ml` repository. Update the bundle with `python3 ../ml/scripts/export.py --web .` and run `pnpm test:model` plus `pnpm build` before deployment. The source type map has 10 regional terrain classes, a 0.5° lookup step, and fixed Earth catalogs per class. Matching uses terrain only; class prototype values do not describe an exact local patch. No soil or rover passability prediction is claimed. The trained Mars model is never applied to the Moon; its existing terrain search remains available.
+
+The API also exposes the same model as `POST /terrain/analogs` for other clients, but the card deliberately uses its packaged browser inference so the web deployment can work independently. No changes to deployment secrets or Docker environment are needed. Publishing still follows the existing push-to-main workflow below.
+
 ## Architecture
 
 The browser talks to this app's same-origin `/api/terrain-search` route. That route forwards requests to the separate [FastAPI service](https://github.com/Org666777148852/api). The API owns the relief index, search worker, and optional AI priority ranking. Map imagery comes from NASA Trek; Earth satellite imagery in the results comes from Esri.

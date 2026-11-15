@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
+    "test:model": "node --experimental-strip-types --test tests/marsAnalog.test.mjs",
     "build": "nuxt build",
     "dev": "nuxt dev",
     "generate": "nuxt generate",
