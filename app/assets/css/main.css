@@ -28,6 +28,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .brand-cross { font-size: 18px; font-weight: 400; color: #f4f6fb; }
 .brand-aezakmi { display: block; width: 112px; height: auto; }
 .brand-logo { display: block; width: 70px; height: 58px; object-fit: contain; }
+.help-button { position: absolute; z-index: 12; top: max(24px, env(safe-area-inset-top)); right: 4.8vw; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid #ffffff28; border-radius: 99px; background: #131922b3; color: #c9d4e3; font-size: 12px; }
+.help-button:hover { background: #283342; color: #fff; }
+.help-button > span { display: grid; place-items: center; width: 17px; height: 17px; border: 1px solid currentColor; border-radius: 50%; font-size: 11px; }
 
 .home-content { position: absolute; z-index: 6; inset: 0; pointer-events: none; transition: opacity .2s ease, transform .2s cubic-bezier(.18, .7, .23, 1); }
 .is-intro .home-content { opacity: 0; transform: translateY(25px); }

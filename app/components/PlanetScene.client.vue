@@ -389,6 +389,8 @@ function updateFlagOverlay() {
 }
 
 function updatePanelBackdrop() {
+  // The mobile sheet uses a CSS backdrop; its canvas is hidden there.
+  if (viewport.width <= 760) return
   const canvas = container.value?.parentElement?.querySelector<HTMLCanvasElement>('.mission-blur-backdrop')
   if (!canvas || !renderer || !container.value) return
   const panel = canvas.getBoundingClientRect()

@@ -8,15 +8,19 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Enter a supported planet and valid coordinates' })
   }
   try {
-    return await $fetch<TerrainResults>(process.env.TERRAIN_API_URL || 'https://api.nasa.aezakmi.org/terrain/search', {
+    const response = await fetch(process.env.TERRAIN_API_URL || 'https://api.nasa.aezakmi.org/terrain/search', {
       method: 'POST',
-      body: { planet, lat, lon, priorities, objective },
-      timeout: 65_000,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planet, lat, lon, priorities, objective }),
+      signal: AbortSignal.timeout(65_000),
     })
+    if (!response.ok) throw createError({ statusCode: response.status })
+    return await response.json() as TerrainResults
   } catch (error: any) {
+    const status = error?.statusCode ?? error?.status
     throw createError({
-      statusCode: error?.status === 429 ? 429 : 503,
-      statusMessage: error?.status === 429 ? 'Terrain search is busy' : 'Terrain API is unavailable',
+      statusCode: status === 429 ? 429 : 503,
+      statusMessage: status === 429 ? 'Terrain search is busy' : 'Terrain API is unavailable',
     })
   }
 })

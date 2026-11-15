@@ -4,6 +4,14 @@ import type { TerrainResults } from '../shared/terrain'
 import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, searchSites, studiesFor, type Planet } from '~/data/places'
 
 const { locale, t } = useI18n()
+const onboardingSeen = useCookie<string | null>('analog-explorer-onboarding', {
+  default: () => null, maxAge: 60 * 60 * 24 * 365, sameSite: 'lax', path: '/',
+})
+const showOnboarding = ref(false)
+function closeOnboarding() {
+  onboardingSeen.value = 'v1'
+  showOnboarding.value = false
+}
 const selected = ref<Planet | null>(null)
 const zoom = ref(0)
 const mobileSheetExpanded = ref(false)
@@ -67,8 +75,8 @@ const maxZoom = computed(() => selected.value === 'moon' ? 8 : 6)
 let lastWheelEvent = -Infinity
 let lastWheelZoom = -Infinity
 let wheelDistance = 0
-const introActive = ref(true)
-const introVisible = ref(true)
+const introActive = ref(onboardingSeen.value !== 'v1')
+const introVisible = ref(onboardingSeen.value !== 'v1')
 const showTerrainResults = ref(false)
 const terrainResults = ref<TerrainResults | null>(null)
 const terrainLoading = ref(false)
@@ -298,6 +306,7 @@ function onPointKeydown(event: KeyboardEvent) {
 function chooseStudy(id: string) {
   if (form.value.studyId === id) return
   form.value.studyId = id
+  void preloadComponents('TerrainSearchResults')
 }
 
 function revealPlanets() {
@@ -307,6 +316,7 @@ function revealPlanets() {
 function finishIntro() {
   introActive.value = false
   introVisible.value = false
+  showOnboarding.value = onboardingSeen.value !== 'v1'
 }
 
 useHead({
@@ -322,7 +332,7 @@ useHead({
 </script>
 
 <template>
-  <TerrainSearchResults v-if="showTerrainResults" :reference="resolved ? resolved.title + ' · ' + formatResolved(resolved.lat, resolved.lon) : ''"
+  <LazyTerrainSearchResults v-if="showTerrainResults" :reference="resolved ? resolved.title + ' · ' + formatResolved(resolved.lat, resolved.lon) : ''"
     :planet="selected ?? 'moon'" :objective="studyLabel" :results="terrainResults" :loading="terrainLoading" :error="terrainError"
     @edit="closeTerrainResults" @retry="findTerrain" />
   <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars' }">
@@ -332,6 +342,9 @@ useHead({
     <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" :sheet-expanded="mobileSheetExpanded" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @pinch="changeZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
+    <button v-if="!introVisible" type="button" class="help-button" @click="showOnboarding = true">
+      <span aria-hidden="true">?</span> How it works
+    </button>
 
     <header v-if="selected" class="site-header">
       <a class="brand" href="/"  :aria-label="t('backDestinations')" @click.prevent="goBack">
@@ -516,4 +529,5 @@ useHead({
       </main>
     </Transition>
   </div>
+  <ClientOnly><LazyExplorerOnboarding v-if="showOnboarding" @close="closeOnboarding" /></ClientOnly>
 </template>

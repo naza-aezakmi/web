@@ -9,7 +9,12 @@ export default defineEventHandler(async (event) => {
   }
   const endpoint = process.env.TERRAIN_CONTEXT_API_URL || (process.env.TERRAIN_API_URL || 'https://api.nasa.aezakmi.org/terrain/search').replace(/\/search\/?$/, '/context')
   try {
-    return await $fetch<EnvironmentPair>(endpoint, { method: 'POST', body: { planet, lat, lon, earth_lat, earth_lon }, timeout: 32_000 })
+    const response = await fetch(endpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planet, lat, lon, earth_lat, earth_lon }), signal: AbortSignal.timeout(32_000),
+    })
+    if (!response.ok) throw createError({ statusCode: response.status })
+    return await response.json() as EnvironmentPair
   } catch {
     throw createError({ statusCode: 503, statusMessage: 'Environmental context is temporarily unavailable' })
   }

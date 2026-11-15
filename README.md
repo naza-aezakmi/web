@@ -8,13 +8,21 @@ An interactive Moon and Mars explorer built with Nuxt, Vue, Three.js, and a Canv
 
 Both planets use the same flow: choose a point by clicking the globe, selecting a landmark or searching coordinates, choose a field-study objective, then press **Find Earth analogues**. Choosing a point only positions the flag. An objective is required before submitting.
 
-The API compares four characteristics: the aligned 5 × 5 elevation profile, elevation range, mean slope, and RMS roughness after fitting a plane. The selected objective assigns weights of 45%, 25%, 20% and 10% in priority order. Rover testing, astronaut training, landing sensors, excavation and geology have their own priority orders; a custom objective uses the existing optional AI prioritization with a documented fallback. The same land screen, geographic mix and scoring method apply to both planets, returning ten ranked candidates.
+The API compares four characteristics: the aligned 5 × 5 elevation profile, elevation range, fitted-plane slope, and RMS roughness after fitting a plane. The selected objective assigns weights of 45%, 25%, 20% and 10% in priority order. Rover testing, astronaut training, landing sensors, excavation and geology have their own priority orders; a custom objective uses the existing optional AI prioritization with a documented fallback. The same land screen, geographic mix and scoring method apply to both planets, returning ten ranked candidates.
 
 Results show the objective, satellite imagery, Earth coordinates, weights, feature differences and aligned elevation matrices. Mars uses NASA MGS MOLA, the Moon NASA LRO LOLA, and Earth NOAA ETOPO2022. These are 10 km regional windows with 2.5 km sample spacing; they do not predict soil composition or wheel-scale passability. Earth imagery is live Esri satellite imagery and requires internet access.
 
 The former instant, three-candidate Mars prototype panel is no longer part of this flow. Its experimental 10-type artifacts remain in `public/ml/mars`, with source in the sibling `ml` repository and the separate `/terrain/analogs` API, for independent analysis. They do not influence this objective-based search.
 
 The flag stays attached to the clicked surface coordinate during rotation and zoom. Named/coordinate searches settle any planet-selection spin and calculate orientation and zoom anchoring together. Returning from results restores the selected coordinate when the globe remounts.
+
+## First visit and loading
+
+After the opening animation, a short guide explains the purpose and the three steps: select a planet, mark a point, choose a test. Completing, skipping or dismissing it with Escape stores the first-party `analog-explorer-onboarding=v1` preference cookie for one year (`SameSite=Lax`, path `/`). No analytics are attached to it. Returning visitors enter the planet picker directly. **How it works** reopens the guide on the home or globe screen. Clearing cookies resets first-visit behavior.
+
+The results screen is a separate asynchronous chunk; selecting a purpose also requests its preload. Height matrices load when their details panel is opened. Production text assets are precompressed with Brotli and gzip; the server negotiates an encoding. Mobile rendering skips the hidden desktop backdrop canvas. Unused prototype UI components and superseded JPEG textures have been removed; the independently usable experimental model assets and tests remain.
+
+The formula, units, weights, SHAP background, data counts and validation limits are documented in the [ML method card](https://github.com/Org666777148852/ml/blob/main/docs/MODEL_CARD.md) and [data sources](https://github.com/Org666777148852/ml/blob/main/docs/DATA_SOURCES.md).
 
 ## Understand a candidate
 

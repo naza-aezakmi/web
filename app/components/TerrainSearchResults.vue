@@ -13,6 +13,7 @@ const props = defineProps<{
   error: string
 }>()
 const emit = defineEmits<{ edit: []; retry: [] }>()
+const showSamples = ref(false)
 const sourceName = computed(() => t(props.planet))
 const active = ref(0)
 const candidate = computed(() => props.results?.matches[active.value])
@@ -109,9 +110,9 @@ function showAnalysis() { document.querySelector('.results-report')?.scrollIntoV
           </tbody>
         </table>
       </div>
-      <details class="height-details"><summary>Show the elevation samples and their differences</summary>
+      <details class="height-details" @toggle="showSamples = ($event.target as HTMLDetailsElement).open"><summary>Show the elevation samples and their differences</summary>
         <p>Each square below is a height sample, rather than a correlation between features. The first two grids show the two landscapes relative to their own mean height. The third shows Earth minus {{ sourceName }}: values near zero mean a close match. Pearson correlation is a separate summary of the two height patterns.</p>
-        <TerrainMatrices :source-name="sourceName" :source="results.query" :earth="candidate.values" :size="results.size" :rotation="candidate.rotation" />
+        <LazyTerrainMatrices v-if="showSamples" :source-name="sourceName" :source="results.query" :earth="candidate.values" :size="results.size" :rotation="candidate.rotation" />
       </details>
       <h3>{{ t('results.fieldScreening') }}</h3>
       <p class="results-method">{{ t('results.fieldMethod') }}
