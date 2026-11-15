@@ -10,13 +10,17 @@ const improvement = computed(() => [...rows.value].sort((a, b) => a.shap_value -
 const drawback = computed(() => [...rows.value].sort((a, b) => b.shap_value - a.shap_value).find(row => row.shap_value > 1e-12))
 const largestPenalty = computed(() => [...rows.value].sort((a, b) => b.penalty - a.penalty)[0])
 const priority = computed(() => [...rows.value].sort((a, b) => b.weight - a.weight)[0])
-const number = (value: number) => new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 }).format(Math.abs(value) < 1e-12 ? 0 : value)
+const scoreFormat = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 })
+const number = (value: number) => {
+  if (Math.abs(value) < 1e-12) return '0'
+  return Math.abs(value) < 1e-4 ? value.toExponential(2) : scoreFormat.format(value)
+}
 const signed = (value: number) => `${value > 1e-12 ? '+' : ''}${number(value)}`
 </script>
 
 <template>
   <section class="explanation" aria-labelledby="explanation-heading" data-testid="terrain-explanation">
-    <div class="explanation-title"><h3 id="explanation-heading">Why this candidate?</h3><span>EXACT SHAP · TERRAIN SCORE</span></div>
+    <div class="explanation-title"><h3 id="explanation-heading">Why this candidate?</h3><span>Exact SHAP</span></div>
     <p class="explanation-summary">
       <template v-if="improvement">Compared with the average of these {{ explanation.background_size }} candidates, <strong>{{ t(`feature.${improvement.feature}`).toLowerCase() }}</strong> most improves this site's score.</template>
       <template v-else-if="drawback">Compared with the average of these {{ explanation.background_size }} candidates, <strong>{{ t(`feature.${drawback.feature}`).toLowerCase() }}</strong> adds the largest penalty.</template>
@@ -27,16 +31,19 @@ const signed = (value: number) => `${value > 1e-12 ? '+' : ''}${number(value)}`
       </template>
     </p>
     <p v-if="priority" class="explanation-priority">For your selected objective, {{ t(`feature.${priority.feature}`).toLowerCase() }} receives the highest weight: {{ Math.round(priority.weight * 100) }}%.</p>
-    <div class="shap-legend"><span class="helps">← Closer than shortlist average</span><span class="hurts">Further from shortlist average →</span></div>
+    <div class="shap-columns" aria-hidden="true"><span>Criterion</span><span>Effect on the terrain score</span><span>Δ score</span></div>
+    <div class="shap-legend"><span class="helps">← Improves match</span><span class="hurts">Increases mismatch →</span></div>
     <div class="shap-chart" role="list" aria-label="Feature effects on the terrain mismatch score">
-      <div v-for="row in rows" :key="row.feature" class="shap-row" role="listitem">
-        <div class="shap-label"><span>{{ t(`feature.${row.feature}`) }}</span><strong :class="row.shap_value < 0 ? 'helps' : 'hurts'">{{ signed(row.shap_value) }}</strong></div>
-        <div class="shap-track" aria-hidden="true"><i :class="row.shap_value < 0 ? 'helps-bar' : 'hurts-bar'" :style="{ left: `${row.shap_value < 0 ? 50 - Math.abs(row.shap_value) / maximum * 48 : 50}%`, width: `${Math.abs(row.shap_value) / maximum * 48}%` }" /></div>
+      <div v-for="row in rows" :key="row.feature" class="shap-row" role="listitem"
+        :title="`Weight: ${Math.round(row.weight * 100)}%. Candidate penalty: ${number(row.penalty)}. Shortlist average penalty: ${number(row.baseline_penalty)}.`">
+        <div class="shap-label"><span>{{ t(`feature.${row.feature}`) }}</span><small>{{ Math.round(row.weight * 100) }}% weight</small></div>
+        <div class="shap-track" aria-hidden="true"><i :class="row.shap_value < 0 ? 'helps-bar' : row.shap_value > 0 ? 'hurts-bar' : ''" :style="{ left: `${row.shap_value < 0 ? 50 - Math.abs(row.shap_value) / maximum * 48 : 50}%`, width: `${Math.abs(row.shap_value) / maximum * 48}%` }" /></div>
+        <strong class="shap-value" :class="row.shap_value < 0 ? 'helps' : row.shap_value > 0 ? 'hurts' : ''">{{ signed(row.shap_value) }}</strong>
       </div>
     </div>
     <div class="score-equation">
       <span>Shortlist average <strong>{{ number(explanation.baseline_score) }}</strong></span><b aria-hidden="true">+</b>
-      <span>Net feature effect <strong>{{ signed(explanation.score - explanation.baseline_score) }}</strong></span><b aria-hidden="true">=</b>
+      <span>Feature adjustment <strong>{{ signed(explanation.score - explanation.baseline_score) }}</strong></span><b aria-hidden="true">=</b>
       <span>Candidate score <strong>{{ number(explanation.score) }}</strong></span>
     </div>
     <p class="shap-caption">Lower score means a closer terrain match. These bars explain the score relative to the displayed shortlist; they are not confidence percentages.</p>
@@ -49,31 +56,38 @@ const signed = (value: number) => `${value > 1e-12 ? '+' : ''}${number(value)}`
 </template>
 
 <style scoped>
-.explanation { padding: 22px; background: #111820; border: 1px solid #9bc8e330; border-radius: 19px; margin: 18px 0; }
+/* Hesoyam's dark tokens and Blocks rhythm, inherited type from the explorer.
+   No component-library runtime is needed for these four deterministic bars. */
+.explanation { --ex-bg: var(--ds-background-100, #000); --ex-text: var(--ds-gray-1000, #ededed); --ex-muted: var(--ds-gray-900, #a0a0a0); --ex-rule: var(--ds-gray-alpha-400, #ffffff24); --ex-blue: var(--ds-blue-900, #52a8ff); --ex-red: var(--ds-red-900, #ff6369); margin: 24px 0; padding: 24px 0 0; border-block: 1px solid var(--ex-rule); background: var(--ex-bg); color: var(--ex-text); }
 .explanation-title { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-h3 { margin: 0; font-size: 1.12rem; }
-.explanation-title > span { color: #9ab6cf; font-size: .65rem; letter-spacing: .08em; }
-p { margin: 10px 0; color: #bdc8d4; font-size: .88rem; line-height: 1.65; }
-.explanation-summary { color: #dfe7ef; font-size: .95rem; }
-.explanation-summary strong { color: white; font-weight: 600; }
-.explanation-priority { font-size: .8rem; }
-.shap-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 18px; font-size: .7rem; margin-top: 22px; }
-.helps { color: #9fd5f2; }.hurts { color: #e6b68f; }
-.shap-chart { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; margin: 16px 0 22px; }
-.shap-label { display: flex; gap: 6px; align-items: baseline; justify-content: space-between; font-size: .8rem; }
-.shap-label strong { font-weight: 500; font-variant-numeric: tabular-nums; }
-.shap-track { position: relative; height: 8px; background: #ffffff08; border-radius: 5px; margin-top: 9px; }
-.shap-track::after { content: ''; position: absolute; top: -4px; bottom: -4px; left: 50%; width: 1px; background: #ffffff55; }
-.shap-track i { display: block; position: absolute; height: 100%; border-radius: 5px; }
-.helps-bar { background: #91cce9; }.hurts-bar { background: #dda77b; }
-.score-equation { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; border: 1px solid #ffffff20; border-radius: 12px; }
-.score-equation span { display: grid; gap: 5px; font-size: .72rem; color: #acbac9; }
-.score-equation strong { font-size: 1rem; color: #f1f4f6; font-weight: 500; }
-.score-equation b { font-weight: 400; color: #8194a7; }
-.shap-caption { font-size: .76rem; }
-.explanation-method { border-top: 1px solid #ffffff1a; padding-top: 13px; margin-top: 16px; font-size: .8rem; }
-.explanation-method summary { cursor: pointer; color: #d0dce7; }
-.explanation-method p,.explanation-method a { font-size: .77rem; }
-a { color: #b7cfe3; }
-@media(max-width: 600px) { .explanation { padding: 16px; }.shap-chart { grid-template-columns: 1fr; }.score-equation { padding: 12px 9px; }.score-equation span { font-size: .63rem; }.score-equation strong { font-size: .87rem; } }
+h3 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.025em; }
+.explanation-title > span { border: 1px solid #2e2e2e; border-radius: 6px; padding: 4px 7px; color: var(--ex-muted); background: #1a1a1a; font-size: 11px; line-height: 1; white-space: nowrap; }
+p { margin: 12px 0; color: var(--ex-muted); font-size: 13px; line-height: 1.65; }
+.explanation-summary { max-width: 90ch; color: var(--ex-text); font-size: 14px; }
+.explanation-summary strong { font-weight: 500; }
+.explanation-priority { font-size: 12px; }
+.shap-columns,.shap-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 2.6fr) 92px; align-items: center; gap: 20px; }
+.shap-columns { margin-top: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--ex-rule); color: var(--ex-muted); font-size: 11px; }
+.shap-columns > :last-child { text-align: right; }
+.shap-legend { display: flex; justify-content: space-between; gap: 8px; margin: 12px 112px 0 calc((100% - 132px) / 3.6 + 20px); font-size: 10px; }
+.helps { color: var(--ex-blue); }.hurts { color: var(--ex-red); }
+.shap-row { min-height: 67px; border-bottom: 1px solid #ffffff12; }
+.shap-row:last-child { border: 0; }
+.shap-label { display: grid; gap: 5px; font-size: 13px; }
+.shap-label small { color: var(--ex-muted); font-size: 11px; }
+.shap-value { font-size: 13px; font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+.shap-track { position: relative; height: 8px; background: #1a1a1a; }
+.shap-track::after { content: ''; position: absolute; top: -13px; bottom: -13px; left: 50%; width: 1px; background: #ffffff40; }
+.shap-track i { display: block; position: absolute; height: 100%; border-radius: 1px; }
+.helps-bar { background: var(--ex-blue); }.hurts-bar { background: var(--ex-red); }
+.score-equation { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 20px; padding: 20px 0; border-block: 1px solid var(--ex-rule); }
+.score-equation span { display: grid; gap: 9px; color: var(--ex-muted); font-size: 11px; }
+.score-equation strong { color: var(--ex-text); font-size: 22px; font-weight: 500; letter-spacing: -.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.score-equation b { color: #666; font-size: 16px; font-weight: 400; }
+.shap-caption { font-size: 11px; }
+.explanation-method { padding: 14px 0; border-top: 1px solid var(--ex-rule); font-size: 12px; }
+.explanation-method summary { cursor: pointer; color: var(--ex-text); }
+.explanation-method p,.explanation-method a { font-size: 12px; }
+a { color: var(--ex-blue); text-underline-offset: 3px; }
+@media(max-width: 600px) { .explanation { padding-top: 20px; }.shap-columns,.shap-row { grid-template-columns: minmax(86px, 1fr) minmax(70px, 1.2fr) 70px; gap: 10px; }.shap-columns { font-size: 10px; }.shap-legend { margin: 12px 0 0; font-size: 10px; }.shap-label { font-size: 12px; }.shap-value { font-size: 11px; }.score-equation { gap: 9px; }.score-equation span { font-size: 10px; }.score-equation strong { font-size: 15px; } }
 </style>

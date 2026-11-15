@@ -165,7 +165,7 @@ p { margin: 6px 0; color: #bfc5cd; overflow-wrap: anywhere; }
 .height-details { border-block: 1px solid #ffffff22; padding: 16px 0; margin: 22px 0; }
 .height-details summary { cursor: pointer; color: #d9e4ee; font-size: .88rem; }
 .height-details > p { font-size: .84rem; line-height: 1.65; }
-.results-report { margin-block: 20px 0; }
+.results-report { margin-block: 20px 0; background: #000; border-color: #ffffff24; border-radius: 8px; padding: clamp(18px, 2.4vw, 30px); }
 .results-detail { grid-area: map; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .results-method a { color: inherit; }
 .results-report > p { line-height: 1.65; }
