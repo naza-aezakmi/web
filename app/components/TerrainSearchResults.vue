@@ -64,19 +64,21 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
         <button type="button" class="results-back" @click="emit('retry')">{{ t('results.retry') }}</button>
       </div>
       <div v-else-if="results && candidate" class="results-layout">
-        <nav class="results-list" :aria-label="t('results.ranked')">
-          <h2>{{ t('results.ranked') }}</h2>
-          <p>{{ t('results.passed', { count: number.format(results.eligibleCount) }) }}</p>
-          <button v-for="(site, index) in results.matches" :key="site.position" class="results-choice"
-            :class="{ 'is-active': active === index }" :aria-pressed="active === index" @click="active = index">
-            <span class="results-rank">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span><strong>{{ coordinates(site.lat, site.lon) }}</strong><small>{{ site.usa ? t('results.unitedStates') : '' }}{{ format(site.error, 'm') }} {{ t('results.profileRmse') }}</small></span>
-          </button>
-        </nav>
         <article class="results-detail" :aria-label="t('results.site', { number: String(active + 1).padStart(2, '0') })">
           <div class="site-title"><h2>{{ t('results.site', { number: String(active + 1).padStart(2, '0') }) }}</h2><p>{{ coordinates(candidate.lat, candidate.lon) }}</p></div>
           <TerrainSatellite :key="candidate.position" :site="candidate" :step="results.step" :radius="results.earth.radius" />
         </article>
+        <nav class="results-list" :aria-label="t('results.ranked')">
+          <h2>{{ t('results.ranked') }}</h2>
+          <p>{{ t('results.passed', { count: number.format(results.eligibleCount) }) }}</p>
+          <div class="results-candidates">
+            <button v-for="(site, index) in results.matches" :key="site.position" class="results-choice"
+              :class="{ 'is-active': active === index }" :aria-pressed="active === index" @click="active = index">
+              <span class="results-rank">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span><strong>{{ coordinates(site.lat, site.lon) }}</strong><small>{{ site.usa ? t('results.unitedStates') : '' }}{{ format(site.error, 'm') }} {{ t('results.profileRmse') }}</small></span>
+            </button>
+          </div>
+        </nav>
       </div>
       <p v-else class="results-status" role="status">{{ t('results.none') }}</p>
     </div>
@@ -134,8 +136,9 @@ h1 { font-size: clamp(2rem, 4vw, 3.65rem); letter-spacing: -.065em; line-height:
 h2 { margin: 0; font-size: 1.18rem; }
 p { margin: 6px 0; color: #bfc5cd; overflow-wrap: anywhere; }
 .objective { color: #f0f2f6; }
-.results-layout { display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); align-items: stretch; gap: clamp(16px, 3vw, 36px); }
+.results-layout { display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); grid-template-areas: "candidates map"; align-items: stretch; gap: clamp(16px, 3vw, 36px); }
 .results-list,.results-report,.results-status { background: linear-gradient(135deg, #242424, #141414); border: 1px solid #ffffff25; border-radius: 24px; padding: 18px; }
+.results-list { grid-area: candidates; min-width: 0; }
 .results-list > p,.results-method { font-size: .86rem; line-height: 1.65; }
 .results-choice { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%; margin-top: 8px; padding: 10px; border: 1px solid transparent; border-radius: 13px; background: #ffffff08; color: #fff; font: inherit; font-size: .85rem; cursor: pointer; }
 .results-choice:hover { border-color: #ffffff50; }
@@ -144,7 +147,7 @@ p { margin: 6px 0; color: #bfc5cd; overflow-wrap: anywhere; }
 .results-rank { opacity: .66; font-variant-numeric: tabular-nums; }
 .site-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin: 0 0 10px; }
 .results-report { margin-block: 20px 0; }
-.results-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.results-detail { grid-area: map; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .results-method a { color: inherit; }
 .results-report > p { line-height: 1.65; }
 .results-report h3 { margin: 20px 0 0; font-size: .95rem; }
@@ -163,11 +166,22 @@ td { white-space: nowrap; color: #d6dbe2; }
   .results-detail :deep(.satellite) { flex: 1; min-height: 0; }
 }
 @media (max-width: 760px) {
-  .results-intro { align-items: start; flex-direction: column; }
+  .terrain-results {
+    padding: calc(12px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+      calc(22px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+  .results-brand { gap: 6px; }
+  .results-brand img { width: 34px; }
+  .results-brand .results-aezakmi { width: 70px; }
+  .results-back { padding: 8px 11px; font-size: .8rem; }
+  .results-intro { align-items: start; flex-direction: column; gap: 6px; margin-block: 18px; }
+  h1 { font-size: clamp(1.65rem, 6.8vw, 2.5rem); }
   .results-reference { text-align: left; max-width: 100%; }
-  .results-layout { grid-template-columns: minmax(0, 1fr); }
-  .results-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr)); gap: 6px; }
-  .results-list h2,.results-list > p { grid-column: 1 / -1; }
-  .results-choice { margin-top: 0; }
+  .results-reference p { font-size: .84rem; }
+  .results-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "map" "candidates"; gap: 12px; }
+  .results-list,.results-report { padding: 13px; border-radius: 20px; }
+  .results-candidates { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 4px 0 8px; }
+  .results-choice { flex: 0 0 min(76%, 225px); margin-top: 0; scroll-snap-align: start; }
+  .results-report { margin-top: 12px; }
 }
 </style>

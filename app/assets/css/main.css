@@ -255,7 +255,7 @@ h1, h2, h3 { font-family: Geist, Arial, sans-serif; }
 .planet-zoom button:focus-visible { outline-offset: -4px; }
 .planet-zoom button:disabled { opacity: .45; cursor: default; }
 .planet-instruction { position: absolute; z-index: 7; bottom: 20px; left: calc(clamp(300px, 29vw, 416px) + 26px); display: flex; gap: 12px; white-space: nowrap; padding: 6px 8px; border-radius: 6px; background: #0009; color: #d7e2ed; font-size: 10px; line-height: 1.35; pointer-events: none; }
-.planet-instruction__touch, .sheet-toggle { display: none; }
+.planet-instruction__touch, .sheet-toggle, .mobile-continue, .mobile-step-next, .mobile-study-origin { display: none; }
 .map-scale { position: absolute; z-index: 7; top: 16px; left: 65%; transform: translateX(-50%); padding-top: 18px; color: #fff; font: 750 11px/1 Geist, Arial, sans-serif; text-shadow: 0 1px 3px #000, 0 0 3px #000; pointer-events: none; }
 .map-scale__numbers span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .map-scale__bar { height: 7px; border: 1px solid #000e; border-radius: 4px; background: linear-gradient(to right, #b5b5c2 50%, #292b33 50%); box-shadow: 0 0 0 1px #ffffff40; }
@@ -266,58 +266,172 @@ h1, h2, h3 { font-family: Geist, Arial, sans-serif; }
 .surface-credit__label { white-space: nowrap; }
 @media (max-width: 760px) {
   .app-shell, .app-shell.is-exploring { width: 100vw; height: 100dvh; min-height: 0; }
+  .home-title {
+    inset: max(38px, calc(env(safe-area-inset-top) + 18px)) 18px auto;
+    width: auto;
+    font-size: clamp(1.6rem, 7vw, 2.3rem);
+    line-height: 1.06;
+    white-space: normal;
+    text-wrap: balance;
+  }
+  .home-title .mobile-title-break { display: none; }
+  .planet-choice { width: 78vw; height: calc(2 * min(27vw, 13dvh, 126px)); }
+  .planet-choice--moon { top: 35%; }
+  .planet-choice--mars { top: 71%; }
+  .planet-choice__ring { width: calc(2 * min(27vw, 13dvh, 126px)); }
+  .planet-choice__label { top: calc(50% + min(27vw, 13dvh, 126px) + 7px); }
+  .planet-choice__title { font-size: clamp(1.25rem, 6vw, 1.65rem); }
+  .planet-choice__subtitle { font-size: .63rem; letter-spacing: .12em; }
+
   .site-header { padding-top: calc(12px + env(safe-area-inset-top)); }
   .is-exploring .site-header { padding: calc(8px + env(safe-area-inset-top)) 0 0 12px; }
   .is-exploring .brand-logo { width: 38px; height: 38px; }
   .is-exploring .brand-aezakmi { width: 84px; }
-  .is-exploring .mission-panel {
-    position: fixed;
-    inset: auto 0 0;
-    width: 100vw;
-    height: min(52dvh, 460px);
-    border-radius: 24px 24px 0 0;
-    transition: height .35s cubic-bezier(.2,.7,.2,1);
-    box-shadow: 0 -12px 40px #0009;
+  .app-shell.is-exploring {
+    --sheet-bottom: max(10px, env(safe-area-inset-bottom));
+    --sheet-compact-height: 88px;
   }
-  .is-exploring .mission-panel.is-sheet-expanded { height: calc(100dvh - 72px - env(safe-area-inset-top)); }
-  .is-exploring .back-button { top: 17px; left: 19px; min-height: 32px; font-size: 11px; }
+  .is-exploring .mission-panel {
+    position: absolute;
+    inset: auto max(10px, env(safe-area-inset-right)) var(--sheet-bottom) max(10px, env(safe-area-inset-left));
+    width: auto;
+    height: var(--sheet-drag-height, var(--sheet-compact-height));
+    max-height: calc(100dvh - max(58px, env(safe-area-inset-top)) - var(--sheet-bottom));
+    border-color: #ffffff45;
+    border-radius: 30px;
+    background: linear-gradient(155deg, #ffffff26, #ffffff08 52%), #13151a8f;
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    backdrop-filter: blur(22px) saturate(1.35);
+    transition: height .32s cubic-bezier(.2,.7,.2,1), background-color .25s ease;
+    box-shadow: inset 0 1px #ffffff36, 0 8px 30px #0008;
+  }
+  .is-exploring .mission-panel.is-sheet-expanded {
+    --sheet-compact-height: min(78dvh, 720px);
+    background: linear-gradient(155deg, #ffffff1f, #ffffff04 55%), #14161dcc;
+  }
+  .is-exploring .mission-panel.is-sheet-dragging { transition: none; }
+  .is-exploring .mission-blur-backdrop { display: none; }
+  .is-exploring .back-button { top: 28px; left: 16px; min-height: 36px; font-size: 11px; }
   .sheet-toggle {
     position: absolute;
-    top: 12px;
-    right: 14px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    min-height: 40px;
-    padding: 0 8px;
+    inset: 0 0 auto;
+    display: grid;
+    place-items: start center;
+    height: 28px;
+    padding: 9px 0 0;
     border: 0;
     background: transparent;
-    color: #f4f6fb;
-    font: 650 11px/1 Geist, Arial, sans-serif;
+    touch-action: none;
+    cursor: grab;
   }
   .sheet-toggle span { display: none; }
-  .sheet-toggle svg { width: 18px; height: 18px; transition: transform .25s ease; }
-  .is-sheet-expanded .sheet-toggle svg { transform: rotate(180deg); }
+  .sheet-toggle i { width: 42px; height: 4px; border-radius: 999px; background: #ffffff60; }
   .is-exploring .mission-content {
-    inset: 59px 14px 0;
-    padding: 0 2px calc(18px + env(safe-area-inset-bottom)) 0;
-    overscroll-behavior: contain;
+    inset: 26px 11px 7px;
+    padding: 0;
+    overflow: hidden;
   }
-  .mission-panel .mission-form { gap: 18px; }
+  .is-exploring .is-sheet-expanded .mission-content {
+    inset: 72px 13px 0;
+    padding-bottom: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+  .mission-panel:not(.is-sheet-expanded) .point-block {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .mission-panel:not(.is-sheet-expanded) .point-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .mission-panel:not(.is-sheet-expanded) :is(.back-button, .point-menu, .field-hint, .point-readout, .field-error, .study-field, .submit-button) { display: none; }
+  .mission-panel:not(.is-sheet-expanded) .point-search-box { border-radius: 999px; background: #ffffff16; }
+  @media (prefers-reduced-motion: reduce) {
+    .is-exploring .mission-panel { transition: none; }
+  }
+  .mission-panel .mission-form { max-width: none; gap: 14px; min-height: 0; }
+  .mission-panel.is-sheet-expanded .mission-form { min-height: 100%; }
+  .mission-panel:not(.is-study-step) .study-field,
+  .mission-panel:not(.is-study-step) .submit-button,
+  .mission-panel.is-sheet-expanded.is-study-step :is(.point-block, .mobile-step-next) { display: none; }
+  .mission-panel.is-sheet-expanded.is-study-step .mobile-study-origin {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 16px;
+    background: #ffffff10;
+    color: #f4f6fb;
+    overflow-wrap: anywhere;
+  }
+  .mobile-study-origin small { display: block; margin-top: 3px; color: #c1cada; }
+  .mobile-study-origin button {
+    flex: none;
+    min-height: 44px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 12px;
+    color: #f4f6fb;
+    background: #ffffff15;
+    font: 600 .76rem/1.2 Geist, Arial, sans-serif;
+  }
+  .is-sheet-expanded:not(.is-study-step) .mobile-step-next {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 99px;
+    color: #161921;
+    background: #fff;
+    font: 700 .92rem/1.2 Geist, Arial, sans-serif;
+  }
+  .mobile-continue {
+    position: fixed;
+    z-index: 9;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: calc(var(--sheet-bottom) + var(--sheet-compact-height) + 10px);
+    left: max(12px, env(safe-area-inset-left));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 14px;
+    border: 1px solid #ffffff35;
+    border-radius: 999px;
+    background: #17191cda;
+    backdrop-filter: blur(16px);
+    color: #f4f6fb;
+    font: 500 .8rem/1.2 Geist, Arial, sans-serif;
+    text-align: left;
+  }
+  .mobile-continue > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-continue strong { flex: none; }
+  .has-mobile-continue .planet-instruction { display: none; }
   .mission-panel .point-label { font-size: 15px; }
   .mission-panel .point-search-row input { min-height: 44px; font-size: 16px; }
   .point-search { min-width: 68px; min-height: 42px; font-size: 13px; }
-  .mission-panel .study-chip { min-height: 45px; font-size: 13px; }
+  .mission-panel .study-chip { min-height: 45px; font-size: 14px; }
   .mission-panel .study-other { min-height: 45px; font-size: 13px; }
   .mission-panel .submit-button { min-height: 54px; font-size: 14px; }
   .mission-panel .point-option { min-height: 46px; font-size: 14px; }
   .mission-panel .point-menu { max-height: min(30dvh, 220px); }
-  .planet-instruction { position: fixed; left: 12px; bottom: calc(min(52dvh, 460px) + 8px); max-width: calc(100vw - 24px); font-size: 10px; }
+  .planet-instruction { position: fixed; left: 12px; bottom: calc(var(--sheet-bottom) + var(--sheet-compact-height) + 9px); max-width: calc(100vw - 24px); font-size: 10px; }
   .planet-instruction > span:not(.planet-instruction__touch) { display: none; }
   .planet-instruction__touch { display: inline; }
-  .is-exploring:has(.is-sheet-expanded) .planet-instruction { display: none; }
-  .map-scale { position: fixed; top: calc(84px + env(safe-area-inset-top)); left: 50%; max-width: 55vw; }
+  .is-exploring:has(.is-sheet-expanded) :is(.planet-instruction, .surface-credit) { display: none; }
+  .map-scale { position: fixed; top: calc(62px + env(safe-area-inset-top)); left: 50%; max-width: 55vw; }
   .map-scale__numbers { font-size: 10px; }
   .planet-zoom { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 12px; }
   .planet-zoom button { width: 44px; height: 44px; }

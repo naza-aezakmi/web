@@ -95,7 +95,7 @@ let transitionDuration = 0
 let focusing = false
 let disposed = false
 let isReducedMotion = false
-let pointerDown: { x: number; y: number; lastX: number; lastY: number; planet: Planet | null } | null = null
+let pointerDown: { x: number; y: number; lastX: number; lastY: number; planet: Planet | null; dragged: boolean } | null = null
 const activeTouches = new Map<number, { x: number; y: number }>()
 let pinchDistance = 0
 let pinchActive = false
@@ -220,12 +220,11 @@ function point(xFraction: number, yFraction: number) {
 function targetPose(planet: Planet): Omit<Pose, 'turn' | 'yaw' | 'pitch'> {
   const { width, height } = viewport
   const mobile = width <= 760
-  const compactMobile = mobile && height < 800
   const atRest = mobile
-    ? point(0.5, planet === 'moon' ? (compactMobile ? 0.39 : 0.43) : (compactMobile ? 0.76 : 0.75))
+    ? point(0.5, planet === 'moon' ? .35 : .71)
     : point(planet === 'moon' ? 0.28 : 0.72, 0.53)
   const baseRadiusPx = mobile
-    ? Math.min(width * 0.245, height * 0.135, 110)
+    ? Math.min(width * .27, height * .13, 126)
     : Math.min(height * 0.17, width * 0.16, 190)
   const radius = pixelToWorld(baseRadiusPx * (planet === 'mars' ? 1.04 : 1))
 
@@ -234,11 +233,12 @@ function targetPose(planet: Planet): Omit<Pose, 'turn' | 'yaw' | 'pitch'> {
     return { ...atRest, radius: radius * 0.72, opacity: 0, roll: 0 }
   }
 
-  const selectedPosition = mobile ? point(0.5, 0.31) : point(0.65, 0.54)
+  const selectedPosition = mobile ? point(0.5, props.sheetExpanded ? .21 : .45) : point(0.65, 0.54)
   const selectedRadiusPx = mobile
-    ? Math.min(height * 0.19, width * 0.36)
+    ? Math.min(height * 0.24, width * 0.43)
     : Math.min(height * 0.46, width * 0.38)
-  const zoomScale = props.zoom < 2 ? [1, 1.35][props.zoom]! : 1.9 * 2 ** (props.zoom - 2)
+  const zoom = props.zoom
+  const zoomScale = zoom < 1 ? 1.35 ** zoom : zoom < 2 ? 1.35 * (1.9 / 1.35) ** (zoom - 1) : 1.9 * 2 ** (zoom - 2)
   const selectedRadius = pixelToWorld(selectedRadiusPx * zoomScale)
   return { ...selectedPosition, radius: selectedRadius, opacity: 1, roll: 0 }
 }
@@ -457,7 +457,7 @@ function frame(now: number) {
   for (const planet of PLANETS) {
     const body = bodies[planet]
     applyPose(body)
-    const level = Math.min(planet === 'moon' ? 8 : 7, props.zoom + 3)
+    const level = Math.min(planet === 'moon' ? 8 : 7, Math.floor(props.zoom) + 3)
     const view = props.selected === planet ? {
       level,
       preload: level < (planet === 'moon' ? 8 : 7),
@@ -528,14 +528,16 @@ function onPointerMove(event: PointerEvent) {
     if (activeTouches.size >= 2) {
       const [first, second] = [...activeTouches.values()]
       const distance = Math.hypot(first!.x - second!.x, first!.y - second!.y)
-      if (pinchDistance && (distance > pinchDistance * 1.27 || distance < pinchDistance / 1.27)) {
-        emit('pinch', distance > pinchDistance ? 1 : -1)
-        pinchDistance = distance
+      if (props.selected && pinchDistance >= 8 && distance >= 8) {
+        emit('pinch', Math.log2(distance / pinchDistance) * 1.35)
       }
+      pinchDistance = distance
       return
     }
   }
-  if (pointerDown?.planet && props.selected === pointerDown.planet) {
+  if (pointerDown?.planet && props.selected === pointerDown.planet && !pinchActive) {
+    if (!pointerDown.dragged && Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) < 5) return
+    pointerDown.dragged = true
     const body = bodies[pointerDown.planet]
     const radiansPerPixel = VISIBLE_HEIGHT / (viewport.height * body.pose.radius)
     const tilt = pointerDown.planet === 'moon' ? .07 : .19
@@ -569,12 +571,16 @@ function onPointerDown(event: PointerEvent) {
       const [first, second] = [...activeTouches.values()]
       pinchDistance = Math.hypot(first!.x - second!.x, first!.y - second!.y)
       pinchActive = true
+      if (props.selected) {
+        const body = bodies[props.selected]
+        body.to = clonePose(body.pose)
+      }
       pointerDown = null
       return
     }
   }
   const planet = hitTest(event)
-  pointerDown = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, planet }
+  pointerDown = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, planet, dragged: false }
   if (planet && props.selected === planet) renderer?.domElement.setPointerCapture(event.pointerId)
 }
 
@@ -582,18 +588,21 @@ function onPointerUp(event: PointerEvent) {
   if (event.pointerType === 'touch') {
     activeTouches.delete(event.pointerId)
     if (pinchActive) {
-      pointerDown = null
-      if (!activeTouches.size) {
+      if (activeTouches.size < 2) {
         pinchActive = false
         pinchDistance = 0
+        const remaining = activeTouches.values().next().value
+        pointerDown = remaining
+          ? { ...remaining, lastX: remaining.x, lastY: remaining.y, planet: props.selected, dragged: true }
+          : null
       }
       return
     }
   }
   if (!pointerDown) return
-  const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y)
+  const moved = pointerDown.dragged || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 8
   pointerDown = null
-  if (moved > 8) return
+  if (moved) return
   const hit = surfaceHit(event)
   const planet = hit?.object.userData.planet as Planet | undefined
   if (!planet) return
@@ -686,9 +695,11 @@ watch(() => props.selected, (selected, previous) => {
 })
 watch([() => props.zoom, () => props.target], ([zoom, target], [previousZoom, previousTarget]) => {
   const focus = target !== previousTarget && target ? target : zoom > previousZoom ? props.point : null
-  arrange(true, 0, props.selected, focus ?? undefined)
+  if (pinchActive) arrange(false)
+  else arrange(true, 0, props.selected, focus ?? undefined)
 })
 watch(() => props.sheetExpanded, () => {
+  if (viewport.width <= 760) arrange(true)
   settleUntil = performance.now() + 450
   requestRender()
 })
@@ -827,8 +838,8 @@ onBeforeUnmount(() => {
     left: 50%;
     width: min(49vw, 27vh, 220px);
   }
-  .fallback-planet--moon { top: 43%; }
-  .fallback-planet--mars { top: 75%; }
+  .fallback-planet--moon { top: 35%; }
+  .fallback-planet--mars { top: 71%; }
   .fallback-planet.is-selected {
     left: 50%;
     top: 30%;
@@ -837,8 +848,8 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) and (max-height: 780px) {
-  .fallback-planet--moon { top: 39%; }
-  .fallback-planet--mars { top: 76%; }
+  .fallback-planet--moon { top: 35%; }
+  .fallback-planet--mars { top: 71%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

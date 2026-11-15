@@ -29,6 +29,8 @@
   "useCoordinates": "Use these coordinates",
   "pointInvalid": "Use a listed name, or latitude and longitude such as 18.445°N, 77.451°E.",
   "pointMissing": "Mark a point by name or by coordinates.",
+  "chooseStudyStep": "Choose purpose",
+  "changeLocation": "Change location",
   "studyQuestion": "What will you use the site for?",
   "otherUse": "Describe another use",
   "terrainPriorities": "Terrain priorities",

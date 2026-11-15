@@ -7,6 +7,61 @@ const { locale, t } = useI18n()
 const selected = ref<Planet | null>(null)
 const zoom = ref(0)
 const mobileSheetExpanded = ref(false)
+const mobileStudyStep = ref(false)
+
+function showStudyStep() {
+  if (!resolved.value) return
+  pointOpen.value = false
+  mobileStudyStep.value = true
+  mobileSheetExpanded.value = true
+}
+
+function showLocationStep() {
+  mobileStudyStep.value = false
+  mobileSheetExpanded.value = false
+}
+const sheetHeight = ref<number>()
+let sheetDrag: { pointer: number; startY: number; height: number; max: number } | undefined
+let ignoreSheetClick = false
+
+function startSheetDrag(event: PointerEvent) {
+  if (event.button !== 0) return
+  const handle = event.currentTarget as HTMLElement
+  const panel = handle.closest('.mission-panel')
+  if (!panel) return
+  ignoreSheetClick = false
+  sheetDrag = { pointer: event.pointerId, startY: event.clientY,
+    height: panel.getBoundingClientRect().height, max: panel.getBoundingClientRect().bottom - 48 }
+  handle.setPointerCapture(event.pointerId)
+}
+
+function moveSheetDrag(event: PointerEvent) {
+  if (sheetDrag?.pointer !== event.pointerId) return
+  const delta = sheetDrag.startY - event.clientY
+  if (Math.abs(delta) > 8) ignoreSheetClick = true
+  if (ignoreSheetClick) sheetHeight.value = Math.min(sheetDrag.max, Math.max(84, sheetDrag.height + delta))
+}
+
+function endSheetDrag(event: PointerEvent) {
+  if (sheetDrag?.pointer !== event.pointerId) return
+  const delta = sheetDrag.startY - event.clientY
+  if (event.type !== 'pointercancel' && Math.abs(delta) > 30) mobileSheetExpanded.value = delta > 0
+  sheetHeight.value = undefined
+  sheetDrag = undefined
+}
+
+function toggleSheet(event: MouseEvent) {
+  if (!ignoreSheetClick || event.detail === 0) mobileSheetExpanded.value = !mobileSheetExpanded.value
+  ignoreSheetClick = false
+}
+
+function openPointInput() {
+  pointOpen.value = true
+  if (window.matchMedia('(max-width: 760px)').matches) {
+    mobileStudyStep.value = false
+    mobileSheetExpanded.value = true
+  }
+}
 const mapTarget = ref<{ lat: number; lon: number } | null>(null)
 const triedSearch = ref(false)
 const mapScale = ref({ kilometers: 0, pixels: 0, segments: 2 })
@@ -128,7 +183,7 @@ function blankForm() {
 }
 
 function selectPlanet(planet: Planet) {
-  mobileSheetExpanded.value = false
+  showLocationStep()
   zoom.value = 0
   mapTarget.value = null
   triedSearch.value = false
@@ -178,7 +233,7 @@ function markLandmark(name: string) {
 }
 
 function goBack() {
-  mobileSheetExpanded.value = false
+  showLocationStep()
   zoom.value = 0
   selected.value = null
 }
@@ -214,6 +269,7 @@ function focusResult() {
   const point = resolved.value
   if (!point) return
   pointOpen.value = false
+  if (mobileSheetExpanded.value) document.getElementById('map-point')?.blur()
   mobileSheetExpanded.value = false
   mapTarget.value = { lat: point.lat, lon: point.lon }
   zoom.value = selected.value === 'moon' && Math.abs(point.lat) > 72 ? 2 : Math.max(zoom.value, 2)
@@ -266,6 +322,7 @@ useHead({
   htmlAttrs: { lang: locale },
   title: () => t('title'),
   meta: [
+    { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
     { name: 'description', content: () => t('description') },
     { name: 'theme-color', content: '#000000' },
   ],
@@ -277,7 +334,7 @@ useHead({
   <TerrainSearchResults v-if="showTerrainResults" :reference="resolved ? resolved.title + ' · ' + formatResolved(resolved.lat, resolved.lon) : ''"
     :planet="selected ?? 'moon'" :objective="studyLabel" :results="terrainResults" :loading="terrainLoading" :error="terrainError"
     @edit="closeTerrainResults" @retry="findTerrain" />
-  <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars' }">
+  <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars', 'has-mobile-continue': resolved && !mobileSheetExpanded }">
     <NuxtRouteAnnouncer />
 
     <ClientOnly><Starfield :orbit="skyRotation" :parallax="!selected && !introActive" /></ClientOnly>
@@ -345,8 +402,15 @@ useHead({
       </main>
     </Transition>
 
+    <button v-if="selected && resolved && !mobileSheetExpanded" type="button" class="mobile-continue"
+      @click="showStudyStep">
+      <span>{{ resolved.title === 'Custom point' ? formatResolved(resolved.lat, resolved.lon) : resolved.title }}</span>
+      <strong>{{ t('chooseStudyStep') }} <span aria-hidden="true">↑</span></strong>
+    </button>
+
     <Transition name="mission-panel">
-      <main v-if="selected" class="mission-panel" :class="{ 'is-sheet-expanded': mobileSheetExpanded }">
+      <main v-if="selected" class="mission-panel" :class="{ 'is-sheet-expanded': mobileSheetExpanded, 'is-sheet-dragging': sheetHeight, 'is-study-step': mobileStudyStep }"
+        :style="sheetHeight ? { '--sheet-drag-height': sheetHeight + 'px' } : undefined">
         <canvas class="mission-blur-backdrop" aria-hidden="true" />
         <button class="back-button" type="button" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12H4m0 0 6-6m-6 6 6 6" stroke="currentColor" stroke-width="1.5" /></svg>
@@ -354,9 +418,11 @@ useHead({
         </button>
         <button class="sheet-toggle" type="button" :aria-expanded="mobileSheetExpanded"
           :aria-label="mobileSheetExpanded ? t('showMap') : t('expandForm')"
-          @click="mobileSheetExpanded = !mobileSheetExpanded">
+          @pointerdown="startSheetDrag" @pointermove="moveSheetDrag"
+          @pointerup="endSheetDrag" @pointercancel="endSheetDrag" @lostpointercapture="endSheetDrag"
+          @click="toggleSheet">
           <span>{{ mobileSheetExpanded ? t('showMap') : t('expandForm') }}</span>
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 14 7-7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <i aria-hidden="true" />
         </button>
 
         <div class="mission-content">
@@ -379,7 +445,7 @@ useHead({
                     aria-autocomplete="list"
                     :aria-activedescendant="pointOpen && suggestions[pointActive] ? `point-opt-${pointActive}` : undefined"
                     :aria-invalid="pointError ? true : undefined"
-                    @focus="pointOpen = true"
+                    @focus="openPointInput"
                     @blur="closePointSoon"
                     @input="onPointInput"
                     @keydown="onPointKeydown"
@@ -412,6 +478,12 @@ useHead({
                 </p>
                 <p v-if="pointError" class="field-error">{{ pointError }}</p>
               </section>
+
+              <div v-if="resolved" class="mobile-study-origin">
+                <div><strong>{{ resolved.title }}</strong><small>{{ formatResolved(resolved.lat, resolved.lon) }}</small></div>
+                <button type="button" @click="showLocationStep">{{ t('changeLocation') }}</button>
+              </div>
+              <button v-if="resolved" type="button" class="mobile-step-next" @click="showStudyStep">{{ t('chooseStudyStep') }} <span aria-hidden="true">↑</span></button>
 
               <div class="study-field">
                 <p class="field-kicker" id="study-label"><b>{{ t('studyQuestion') }}</b></p>
