@@ -48,7 +48,7 @@ type Body = {
 }
 
 const props = defineProps<{ selected: Planet | null; zoom: number; point: { lat: number; lon: number } | null; target: { lat: number; lon: number } | null }>()
-const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }]; landmark: [name: string]; zoom: [event: WheelEvent]; orbit: [rotation: [number, number, number, number]]; scale: [value: { kilometers: number; pixels: number; segments: number }] }>()
+const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }]; landmark: [name: string]; zoom: [event: WheelEvent]; pinch: [direction: number]; orbit: [rotation: [number, number, number, number]]; scale: [value: { kilometers: number; pixels: number; segments: number }] }>()
 const container = ref<HTMLElement | null>(null)
 const flagOverlay = ref<HTMLImageElement | null>(null)
 const webglFailed = ref(false)
@@ -95,6 +95,9 @@ let transitionDuration = 0
 let disposed = false
 let isReducedMotion = false
 let pointerDown: { x: number; y: number; lastX: number; lastY: number; planet: Planet | null } | null = null
+const activeTouches = new Map<number, { x: number; y: number }>()
+let pinchDistance = 0
+let pinchActive = false
 let viewport = { width: 1, height: 1 }
 const bodies = {} as Record<Planet, Body>
 const raycaster = new THREE.Raycaster()
@@ -164,12 +167,6 @@ function createBody(planet: Planet): Body {
   scene!.add(mesh)
 
   const marker = new THREE.Group()
-  const markerBase = new THREE.Mesh(
-    new THREE.CircleGeometry(0.024, 20),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: true }),
-  )
-  markerBase.position.z = 0.025
-  marker.add(markerBase)
   marker.visible = false
   mesh.add(marker)
 
@@ -259,9 +256,9 @@ function targetPose(planet: Planet): Omit<Pose, 'turn'> {
     return { ...atRest, radius: radius * 0.72, opacity: 0, roll: 0 }
   }
 
-  const selectedPosition = mobile ? point(0.5, 0.35) : point(0.65, 0.54)
+  const selectedPosition = mobile ? point(0.5, 0.31) : point(0.65, 0.54)
   const selectedRadiusPx = mobile
-    ? Math.min(height * 0.22, width * 0.4)
+    ? Math.min(height * 0.19, width * 0.36)
     : Math.min(height * 0.46, width * 0.38)
   const zoomScale = props.zoom < 2 ? [1, 1.35][props.zoom]! : 1.9 * 2 ** (props.zoom - 2)
   const selectedRadius = pixelToWorld(selectedRadiusPx * zoomScale)
@@ -506,6 +503,18 @@ function onWheel(event: WheelEvent) {
 }
 
 function onPointerMove(event: PointerEvent) {
+  if (event.pointerType === 'touch' && activeTouches.has(event.pointerId)) {
+    activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (activeTouches.size >= 2) {
+      const [first, second] = [...activeTouches.values()]
+      const distance = Math.hypot(first!.x - second!.x, first!.y - second!.y)
+      if (pinchDistance && (distance > pinchDistance * 1.27 || distance < pinchDistance / 1.27)) {
+        emit('pinch', distance > pinchDistance ? 1 : -1)
+        pinchDistance = distance
+      }
+      return
+    }
+  }
   if (pointerDown?.planet && props.selected === pointerDown.planet) {
     const body = bodies[pointerDown.planet]
     const radiansPerPixel = VISIBLE_HEIGHT / (viewport.height * body.pose.radius)
@@ -527,12 +536,34 @@ function onPointerMove(event: PointerEvent) {
 }
 
 function onPointerDown(event: PointerEvent) {
+  if (event.pointerType === 'touch') {
+    activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    renderer?.domElement.setPointerCapture(event.pointerId)
+    if (activeTouches.size >= 2) {
+      const [first, second] = [...activeTouches.values()]
+      pinchDistance = Math.hypot(first!.x - second!.x, first!.y - second!.y)
+      pinchActive = true
+      pointerDown = null
+      return
+    }
+  }
   const planet = hitTest(event)
   pointerDown = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, planet }
   if (planet && props.selected === planet) renderer?.domElement.setPointerCapture(event.pointerId)
 }
 
 function onPointerUp(event: PointerEvent) {
+  if (event.pointerType === 'touch') {
+    activeTouches.delete(event.pointerId)
+    if (pinchActive) {
+      pointerDown = null
+      if (!activeTouches.size) {
+        pinchActive = false
+        pinchDistance = 0
+      }
+      return
+    }
+  }
   if (!pointerDown) return
   const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y)
   pointerDown = null
@@ -542,16 +573,22 @@ function onPointerUp(event: PointerEvent) {
   if (!planet) return
   if (!props.selected) {
     emit('select', planet)
-  } else if (props.selected === planet && hit?.uv) {
+  } else if (props.selected === planet && hit) {
+    const local = bodies[planet].mesh.worldToLocal(hit.point.clone()).normalize()
     emit('mark', {
       planet,
-      lat: Number(((hit.uv.y - 0.5) * 180).toFixed(3)),
-      lon: Number(((hit.uv.x - 0.5) * 360).toFixed(3)),
+      lat: Number(THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(local.y, -1, 1))).toFixed(3)),
+      lon: Number(THREE.MathUtils.radToDeg(Math.atan2(-local.z, local.x)).toFixed(3)),
     })
   }
 }
 
-function onPointerCancel() {
+function onPointerCancel(event: PointerEvent) {
+  activeTouches.delete(event.pointerId)
+  if (!activeTouches.size) {
+    pinchActive = false
+    pinchDistance = 0
+  }
   pointerDown = null
 }
 

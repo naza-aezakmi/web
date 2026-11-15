@@ -6,6 +6,7 @@ import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, search
 const { locale, t } = useI18n()
 const selected = ref<Planet | null>(null)
 const zoom = ref(0)
+const mobileSheetExpanded = ref(false)
 const mapTarget = ref<{ lat: number; lon: number } | null>(null)
 const triedSearch = ref(false)
 const mapScale = ref({ kilometers: 0, pixels: 0, segments: 2 })
@@ -125,6 +126,7 @@ function blankForm() {
 }
 
 function selectPlanet(planet: Planet) {
+  mobileSheetExpanded.value = false
   zoom.value = 0
   mapTarget.value = null
   triedSearch.value = false
@@ -163,6 +165,7 @@ function markLandmark(name: string) {
 }
 
 function goBack() {
+  mobileSheetExpanded.value = false
   zoom.value = 0
   selected.value = null
 }
@@ -198,6 +201,7 @@ function focusResult() {
   const point = resolved.value
   if (!point) return
   pointOpen.value = false
+  mobileSheetExpanded.value = false
   mapTarget.value = { lat: point.lat, lon: point.lon }
   zoom.value = selected.value === 'moon' && Math.abs(point.lat) > 72 ? 2 : Math.max(zoom.value, 2)
   sourceRevealed.value = false
@@ -264,7 +268,7 @@ useHead({
     <NuxtRouteAnnouncer />
 
     <ClientOnly><Starfield :orbit="skyRotation" :parallax="!selected && !introActive" /></ClientOnly>
-    <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
+    <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @pinch="changeZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
 
@@ -286,6 +290,7 @@ useHead({
     <div v-if="selected" class="planet-instruction">
       <span>{{ t('rotate') }}</span>
       <span>{{ t('zoom') }}</span>
+      <span class="planet-instruction__touch">{{ t('touchControls') }}</span>
     </div>
 
     <button v-if="selected && zoom > 0 && !sourceRevealed" type="button" class="surface-credit is-compact"
@@ -328,10 +333,16 @@ useHead({
     </Transition>
 
     <Transition name="mission-panel">
-      <main v-if="selected" class="mission-panel">
+      <main v-if="selected" class="mission-panel" :class="{ 'is-sheet-expanded': mobileSheetExpanded }">
         <button class="back-button" type="button" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12H4m0 0 6-6m-6 6 6 6" stroke="currentColor" stroke-width="1.5" /></svg>
           {{ t('backDestinations') }}
+        </button>
+        <button class="sheet-toggle" type="button" :aria-expanded="mobileSheetExpanded"
+          :aria-label="mobileSheetExpanded ? t('showMap') : t('expandForm')"
+          @click="mobileSheetExpanded = !mobileSheetExpanded">
+          <span>{{ mobileSheetExpanded ? t('showMap') : t('expandForm') }}</span>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 14 7-7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
 
         <div class="mission-content">
@@ -372,7 +383,7 @@ useHead({
                       :class="{ 'is-active': index === pointActive }"
                       :aria-selected="index === pointActive"
                       @mouseenter="pointActive = index"
-                      @mousedown.prevent="chooseSuggestion(index)"
+                      @click="chooseSuggestion(index)"
                     >
                       {{ suggestion.title }}
                       <small>{{ suggestion.meta }}</small>

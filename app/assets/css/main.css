@@ -253,6 +253,7 @@ h1, h2, h3 { font-family: Geist, Arial, sans-serif; }
 .planet-zoom button:focus-visible { outline-offset: -4px; }
 .planet-zoom button:disabled { opacity: .45; cursor: default; }
 .planet-instruction { position: absolute; z-index: 7; bottom: 20px; left: calc(clamp(300px, 29vw, 416px) + 26px); display: flex; gap: 12px; white-space: nowrap; padding: 6px 8px; border-radius: 6px; background: #0009; color: #d7e2ed; font-size: 10px; line-height: 1.35; pointer-events: none; }
+.planet-instruction__touch, .sheet-toggle { display: none; }
 .map-scale { position: absolute; z-index: 7; top: 16px; left: 65%; transform: translateX(-50%); padding-top: 18px; color: #fff; font: 750 11px/1 Geist, Arial, sans-serif; text-shadow: 0 1px 3px #000, 0 0 3px #000; pointer-events: none; }
 .map-scale__numbers span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .map-scale__bar { height: 7px; border: 1px solid #000e; border-radius: 4px; background: linear-gradient(to right, #b5b5c2 50%, #292b33 50%); box-shadow: 0 0 0 1px #ffffff40; }
@@ -262,14 +263,63 @@ h1, h2, h3 { font-family: Geist, Arial, sans-serif; }
 .surface-credit__icon { font: 700 15px/1 Georgia, serif; }
 .surface-credit__label { white-space: nowrap; }
 @media (max-width: 760px) {
-  .is-exploring .mission-panel { inset: 58% 10px 10px; width: auto; border-radius: 20px; }
-  .is-exploring .site-header { padding: 10px 0 0 12px; }
-  .is-exploring .back-button { top: 9px; left: 14px; }
-  .is-exploring .mission-content { inset: 42px 10px 34px 14px; }
-  .planet-instruction { left: 10px; bottom: calc(42% + 6px); }
-  .map-scale { left: 50%; top: 48px; }
-  .is-exploring .mission-content h2 { font-size: clamp(34px, 8vw, 46px); }
-  .planet-zoom { top: 12px; right: 12px; }
-  .planet-zoom button { width: 36px; height: 36px; }
-  .surface-credit { top: 12px; bottom: auto; right: 58px; }
+  .app-shell, .app-shell.is-exploring { width: 100vw; height: 100dvh; min-height: 0; }
+  .site-header { padding-top: calc(12px + env(safe-area-inset-top)); }
+  .is-exploring .site-header { padding: calc(8px + env(safe-area-inset-top)) 0 0 12px; }
+  .is-exploring .brand-logo { width: 38px; height: 38px; }
+  .is-exploring .brand-aezakmi { width: 84px; }
+  .is-exploring .mission-panel {
+    position: fixed;
+    inset: auto 0 0;
+    width: 100vw;
+    height: min(52dvh, 460px);
+    border-radius: 24px 24px 0 0;
+    transition: height .35s cubic-bezier(.2,.7,.2,1);
+    box-shadow: 0 -12px 40px #0009;
+  }
+  .is-exploring .mission-panel.is-sheet-expanded { height: calc(100dvh - 72px - env(safe-area-inset-top)); }
+  .is-exploring .back-button { top: 17px; left: 19px; min-height: 32px; font-size: 11px; }
+  .sheet-toggle {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-height: 40px;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: #f4f6fb;
+    font: 650 11px/1 Geist, Arial, sans-serif;
+  }
+  .sheet-toggle span { display: none; }
+  .sheet-toggle svg { width: 18px; height: 18px; transition: transform .25s ease; }
+  .is-sheet-expanded .sheet-toggle svg { transform: rotate(180deg); }
+  .is-exploring .mission-content {
+    inset: 59px 14px 0;
+    padding: 0 2px calc(18px + env(safe-area-inset-bottom)) 0;
+    overscroll-behavior: contain;
+  }
+  .mission-panel .mission-form { gap: 18px; }
+  .mission-panel .point-label { font-size: 15px; }
+  .mission-panel .point-search-row input { min-height: 44px; font-size: 16px; }
+  .point-search { min-width: 68px; min-height: 42px; font-size: 13px; }
+  .mission-panel .study-chip { min-height: 45px; font-size: 13px; }
+  .mission-panel .study-other { min-height: 45px; font-size: 13px; }
+  .mission-panel .submit-button { min-height: 54px; font-size: 14px; }
+  .mission-panel .point-option { min-height: 46px; font-size: 14px; }
+  .mission-panel .point-menu { max-height: min(30dvh, 220px); }
+  .planet-instruction { position: fixed; left: 12px; bottom: calc(min(52dvh, 460px) + 8px); max-width: calc(100vw - 24px); font-size: 10px; }
+  .planet-instruction > span:not(.planet-instruction__touch) { display: none; }
+  .planet-instruction__touch { display: inline; }
+  .is-exploring:has(.is-sheet-expanded) .planet-instruction { display: none; }
+  .map-scale { position: fixed; top: calc(84px + env(safe-area-inset-top)); left: 50%; max-width: 55vw; }
+  .map-scale__numbers { font-size: 10px; }
+  .planet-zoom { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 12px; }
+  .planet-zoom button { width: 44px; height: 44px; }
+  .surface-credit { position: fixed; top: calc(116px + env(safe-area-inset-top)); bottom: auto; right: 12px; width: 36px; min-width: 36px; min-height: 36px; padding: 0; }
+  .surface-credit.is-compact { width: 36px; }
+  .surface-credit__label { display: none; }
 }
