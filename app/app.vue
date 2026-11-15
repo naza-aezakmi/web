@@ -334,7 +334,7 @@ useHead({
   <TerrainSearchResults v-if="showTerrainResults" :reference="resolved ? resolved.title + ' · ' + formatResolved(resolved.lat, resolved.lon) : ''"
     :planet="selected ?? 'moon'" :objective="studyLabel" :results="terrainResults" :loading="terrainLoading" :error="terrainError"
     @edit="closeTerrainResults" @retry="findTerrain" />
-  <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars', 'has-mobile-continue': resolved && !mobileSheetExpanded }">
+  <div v-else class="app-shell" :class="{ 'is-intro': introActive, 'is-exploring': selected, 'is-moon': selected === 'moon', 'is-mars': selected === 'mars' }">
     <NuxtRouteAnnouncer />
 
     <ClientOnly><Starfield :orbit="skyRotation" :parallax="!selected && !introActive" /></ClientOnly>
@@ -360,7 +360,6 @@ useHead({
     <div v-if="selected" class="planet-instruction">
       <span>{{ t('rotate') }}</span>
       <span>{{ t('zoom') }}</span>
-      <span class="planet-instruction__touch">{{ t('touchControls') }}</span>
     </div>
 
     <button v-if="selected && zoom > 0 && !sourceRevealed" type="button" class="surface-credit is-compact"
