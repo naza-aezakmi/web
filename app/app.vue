@@ -18,7 +18,9 @@ function moveStars(rotation: [number, number, number, number]) {
   skyRotation.value = rotation
 }
 const maxZoom = computed(() => selected.value === 'moon' ? 8 : 6)
+let lastWheelEvent = -Infinity
 let lastWheelZoom = -Infinity
+let wheelDistance = 0
 const introActive = ref(true)
 const introVisible = ref(true)
 const showTerrainResults = ref(false)
@@ -130,6 +132,9 @@ function selectPlanet(planet: Planet) {
   zoom.value = 0
   mapTarget.value = null
   triedSearch.value = false
+  wheelDistance = 0
+  lastWheelEvent = -Infinity
+  lastWheelZoom = -Infinity
   selected.value = planet
   triedSubmit.value = false
   pointOpen.value = false
@@ -146,9 +151,17 @@ function changeZoom(direction: number) {
 function wheelZoom(event: WheelEvent) {
   if (Math.abs(event.deltaY) < Math.abs(event.deltaX) || !event.deltaY || event.metaKey) return
   const now = performance.now()
-  if (now - lastWheelZoom < 180) return
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1
+  const delta = Math.sign(event.deltaY) * Math.min(120, Math.abs(event.deltaY * unit))
+  if (now - lastWheelEvent > 240 || (wheelDistance && Math.sign(wheelDistance) !== Math.sign(delta))) {
+    wheelDistance = 0
+  }
+  lastWheelEvent = now
+  wheelDistance = Math.max(-150, Math.min(150, wheelDistance + delta))
+  if (Math.abs(wheelDistance) < 150 || now - lastWheelZoom < 350) return
+  changeZoom(wheelDistance < 0 ? 1 : -1)
+  wheelDistance = 0
   lastWheelZoom = now
-  changeZoom(event.deltaY < 0 ? 1 : -1)
 }
 
 function markPoint(point: { planet: Planet; lat: number; lon: number }) {

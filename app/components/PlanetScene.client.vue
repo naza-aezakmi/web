@@ -1,6 +1,9 @@
 <template>
   <div ref="container" class="planet-scene">
-    <img ref="flagOverlay" class="surface-flag" src="/nasa-flag.svg" alt="" aria-hidden="true" />
+    <div ref="flagOverlay" class="surface-flag" aria-hidden="true">
+      <span class="surface-flag__pole" />
+      <img class="surface-flag__cloth" src="/nasa-flag.svg" alt="" />
+    </div>
     <div class="lunar-labels" :aria-label="selected === 'mars' ? 'Martian landmarks' : 'Lunar landmarks'">
       <button v-for="label in labels" :key="label.name" type="button" class="lunar-label"
         :class="'lunar-label--' + label.tier"
@@ -32,13 +35,11 @@ import { createSphericalTiles } from '~/utils/sphericalTiles'
 import { formatCoordinates, MARS_FEATURES, MARS_LANDMARKS, MOON_FEATURES, MOON_LANDMARKS, MOON_MISSIONS } from '~/data/places'
 
 type Planet = 'moon' | 'mars'
-type Pose = { x: number; y: number; radius: number; opacity: number; turn: number; roll: number }
+type Pose = { x: number; y: number; radius: number; opacity: number; turn: number; roll: number; yaw: number; pitch: number }
 type Body = {
   mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>
   material: THREE.MeshStandardMaterial
   glow: THREE.Sprite
-  yaw: number
-  pitch: number
   pose: Pose
   from: Pose
   to: Pose
@@ -49,7 +50,7 @@ type Body = {
 const props = defineProps<{ selected: Planet | null; zoom: number; point: { lat: number; lon: number } | null; target: { lat: number; lon: number } | null; sheetExpanded: boolean }>()
 const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }]; landmark: [name: string]; zoom: [event: WheelEvent]; pinch: [direction: number]; orbit: [rotation: [number, number, number, number]]; scale: [value: { kilometers: number; pixels: number; segments: number }] }>()
 const container = ref<HTMLElement | null>(null)
-const flagOverlay = ref<HTMLImageElement | null>(null)
+const flagOverlay = ref<HTMLDivElement | null>(null)
 const webglFailed = ref(false)
 type SurfaceLabel = { name: string; kind: string; lat: number; lon: number; tier: 'primary' | 'regional' | 'local'; x: number; y: number; width: number; availableWidth: number; angle: number }
 const labels = shallowRef<SurfaceLabel[]>([])
@@ -91,6 +92,7 @@ let lastFrame = 0
 let settleUntil = 0
 let transitionStart = 0
 let transitionDuration = 0
+let focusing = false
 let disposed = false
 let isReducedMotion = false
 let pointerDown: { x: number; y: number; lastX: number; lastY: number; planet: Planet | null } | null = null
@@ -176,8 +178,8 @@ function createBody(planet: Planet): Body {
   glow.position.z = -0.7
   scene!.add(glow)
 
-  const initial: Pose = { x: 0, y: 0, radius: 1, opacity: 1, turn: 0, roll: 0 }
-  return { mesh, material, glow, yaw: 0, pitch: 0, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial), tiles: createSphericalTiles(planet, mesh, requestRender) }
+  const initial: Pose = { x: 0, y: 0, radius: 1, opacity: 1, turn: 0, roll: 0, yaw: 0, pitch: 0 }
+  return { mesh, material, glow, pose: clonePose(initial), from: clonePose(initial), to: clonePose(initial), tiles: createSphericalTiles(planet, mesh, requestRender) }
 }
 
 function loadTexture(planet: Planet, url: string) {
@@ -215,7 +217,7 @@ function point(xFraction: number, yFraction: number) {
   }
 }
 
-function targetPose(planet: Planet): Omit<Pose, 'turn'> {
+function targetPose(planet: Planet): Omit<Pose, 'turn' | 'yaw' | 'pitch'> {
   const { width, height } = viewport
   const mobile = width <= 760
   const compactMobile = mobile && height < 800
@@ -238,52 +240,33 @@ function targetPose(planet: Planet): Omit<Pose, 'turn'> {
     : Math.min(height * 0.46, width * 0.38)
   const zoomScale = props.zoom < 2 ? [1, 1.35][props.zoom]! : 1.9 * 2 ** (props.zoom - 2)
   const selectedRadius = pixelToWorld(selectedRadiusPx * zoomScale)
-  if (props.point && props.zoom >= 2 && bodies[planet]) {
-    const markerOffset = projectSite(props.point).normal.applyQuaternion(bodies[planet].mesh.quaternion)
-    return {
-      x: selectedPosition.x - markerOffset.x * selectedRadius,
-      y: selectedPosition.y - markerOffset.y * selectedRadius,
-      radius: selectedRadius,
-      opacity: 1,
-      roll: 0,
-    }
-  }
   return { ...selectedPosition, radius: selectedRadius, opacity: 1, roll: 0 }
 }
 
-function arrange(animate: boolean, spin = 0, spinningPlanet: Planet | null = props.selected) {
+function arrange(animate: boolean, spin = 0, spinningPlanet: Planet | null = props.selected, focus?: { lat: number; lon: number }) {
   if (!renderer) return
+  focusing = false
   for (const planet of PLANETS) {
     const body = bodies[planet]
-    // Zoom anchors the selected coordinate using the current rotation, including
-    // any drag since the last rendered frame.
-    applyPose(body)
     const target = targetPose(planet)
     body.from = clonePose(body.pose)
     body.to = {
       ...target,
-      turn: body.pose.turn + (spinningPlanet === planet ? spin * Math.PI * 1.55 : 0),
+      turn: spinningPlanet === planet && spin ? body.pose.turn + spin * Math.PI * 1.55 : body.to.turn,
+      yaw: body.to.yaw,
+      pitch: body.to.pitch,
+    }
+    if (focus && props.selected === planet) {
+      const yaw = THREE.MathUtils.degToRad(-90 - focus.lon) - (planet === 'moon' ? -.9 : .42) - body.to.turn
+      const delta = yaw - body.pose.yaw
+      body.to.pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(focus.lat, -90, 90)) - (planet === 'moon' ? .07 : .19)
+      body.to.yaw = body.pose.yaw + Math.atan2(Math.sin(delta), Math.cos(delta))
+      focusing = Math.hypot(body.to.pitch - body.pose.pitch, body.to.yaw - body.pose.yaw, body.to.turn - body.pose.turn) > .01
     }
     if (!animate || isReducedMotion) body.pose = clonePose(body.to)
   }
   transitionStart = performance.now()
-  transitionDuration = animate && !isReducedMotion ? (spin || !props.selected ? 1350 : 600) : 0
-  requestRender()
-}
-
-function focusTarget(target: { lat: number; lon: number }) {
-  const planet = props.selected
-  if (!planet || !camera || !bodies[planet]) return
-  // A search may arrive during the selection spin or in the same update as zoom.
-  // Finish that pose before calculating the rotation and the zoom anchor together.
-  transitionDuration = 0
-  for (const name of PLANETS) bodies[name].pose = clonePose(bodies[name].to)
-  const body = bodies[planet]
-  body.pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(target.lat, -90, 90)) - (planet === 'moon' ? .07 : .19)
-  body.yaw = THREE.MathUtils.degToRad(-90 - target.lon) - (planet === 'moon' ? -.9 : .42) - body.pose.turn
-  applyPose(body)
-  arrange(false)
-  settleUntil = performance.now() + 100
+  transitionDuration = animate && !isReducedMotion ? (focusing ? 800 : spin || !props.selected ? 1350 : 600) : 0
   requestRender()
 }
 
@@ -291,8 +274,8 @@ function applyPose(body: Body) {
   body.mesh.position.set(body.pose.x, body.pose.y, 0)
   body.mesh.scale.setScalar(body.pose.radius)
   body.mesh.rotation.set(
-    (body.mesh.userData.planet === 'moon' ? 0.07 : 0.19) + body.pitch,
-    (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn + body.yaw,
+    (body.mesh.userData.planet === 'moon' ? 0.07 : 0.19) + body.pose.pitch,
+    (body.mesh.userData.planet === 'moon' ? -0.9 : 0.42) + body.pose.turn + body.pose.yaw,
     0,
   )
   body.mesh.quaternion.premultiply(rollRotation.setFromAxisAngle(viewAxis, body.pose.roll))
@@ -367,7 +350,7 @@ function updateFlagOverlay() {
   const body = bodies[planet]
   body.mesh.updateMatrixWorld(true)
   flagNormal.copy(projectSite(props.point).normal)
-  flagPosition.copy(flagNormal).multiplyScalar(1.001).applyMatrix4(body.mesh.matrixWorld)
+  flagPosition.copy(flagNormal).applyMatrix4(body.mesh.matrixWorld)
   flagNormal.applyQuaternion(body.mesh.quaternion)
   if (flagNormal.z <= 0.02 || body.pose.opacity < 0.1) {
     flag.style.visibility = 'hidden'
@@ -376,14 +359,30 @@ function updateFlagOverlay() {
   flagPosition.project(camera)
   const x = (flagPosition.x + 1) * viewport.width / 2
   const y = (1 - flagPosition.y) * viewport.height / 2
-  // Lean the pole outward with the surface normal and foreshorten the cloth.
-  const a = 0.68 + 0.32 * flagNormal.z
-  const b = -flagNormal.x * 0.08
-  const c = -flagNormal.x * 0.52
-  const d = 0.9 + 0.1 * flagNormal.z
-  const anchorX = 7.2
-  const anchorY = 72.2
-  flag.style.transform = `matrix(${a}, ${b}, ${c}, ${d}, ${-a * anchorX - c * anchorY}, ${-b * anchorX - d * anchorY})`
+  const radiusPixels = body.pose.radius * viewport.height / VISIBLE_HEIGHT
+  const zoomScale = THREE.MathUtils.clamp(0.38 + Math.log2(Math.max(1, radiusPixels / 100)) * 0.09, 0.38, 0.82)
+  const scale = zoomScale * THREE.MathUtils.lerp(.58, 1.24, flagNormal.z)
+  // The surface normal points out of the globe. Near nadir its screen
+  // projection is almost zero, so blend to an upright flag for legibility.
+  const radial = THREE.MathUtils.smoothstep(Math.hypot(flagNormal.x, flagNormal.y), .04, .45)
+  const outwardX = flagNormal.x * radial
+  const outwardY = -flagNormal.y * radial - (1 - radial)
+  const outwardLength = Math.hypot(outwardX, outwardY)
+  const dx = outwardLength > .001 ? outwardX / outwardLength : 0
+  const dy = outwardLength > .001 ? outwardY / outwardLength : -1
+  const mast = 69 * scale
+  flag.style.setProperty('--mast-length', `${mast}px`)
+  flag.style.setProperty('--mast-angle', `${Math.atan2(dx, -dy)}rad`)
+  // Map the artwork's left edge (SVG x=16, y=9…74) onto two points on the mast.
+  const upperX = mast * dx * .92
+  const upperY = mast * dy * .92
+  const c = -mast * dx * .56 / 39
+  const d = -mast * dy * .56 / 39
+  // Extend the free edge along the downward-facing tangent.
+  const side = dx < -.15 ? -1 : 1
+  const a = -dy * side * scale
+  const b = Math.abs(dx) * scale
+  flag.style.setProperty('--cloth-transform', `matrix(${a}, ${b}, ${c}, ${d}, ${upperX - a * 9.6 - c * 5.4}, ${upperY - b * 9.6 - d * 5.4})`)
   flag.style.left = `${x}px`
   flag.style.top = `${y}px`
   flag.style.visibility = x >= -80 && x <= viewport.width + 80 && y >= -80 && y <= viewport.height + 80 ? 'visible' : 'hidden'
@@ -444,8 +443,11 @@ function frame(now: number) {
     const eased = 1 - Math.pow(1 - t, 3)
     for (const planet of PLANETS) {
       const body = bodies[planet]
-      for (const key of ['x', 'y', 'radius', 'opacity', 'turn', 'roll'] as const) {
-        body.pose[key] = body.from[key] + (body.to[key] - body.from[key]) * eased
+      const zoomT = focusing ? Math.max(0, (t - .32) / .68) : t
+      const zoomEase = 1 - Math.pow(1 - zoomT, 3)
+      for (const key of ['x', 'y', 'radius', 'opacity', 'turn', 'roll', 'yaw', 'pitch'] as const) {
+        const progress = key === 'radius' || key === 'x' || key === 'y' ? zoomEase : eased
+        body.pose[key] = THREE.MathUtils.lerp(body.from[key], body.to[key], progress)
       }
     }
     if (t === 1) transitionDuration = 0
@@ -479,9 +481,7 @@ function frame(now: number) {
 
 function resize() {
   if (!renderer || !camera || !container.value) return
-  // The intro scales the scene to 84%. Its transformed bounding rectangle is
-  // smaller than the layout canvas and does not trigger ResizeObserver when the
-  // animation ends. Use layout dimensions for rendering and DOM overlays.
+  // Layout dimensions are stable while the intro scales the scene visually.
   viewport = {
     width: Math.max(1, container.value.clientWidth || window.innerWidth),
     height: Math.max(1, container.value.clientHeight || window.innerHeight),
@@ -539,12 +539,18 @@ function onPointerMove(event: PointerEvent) {
     const body = bodies[pointerDown.planet]
     const radiansPerPixel = VISIBLE_HEIGHT / (viewport.height * body.pose.radius)
     const tilt = pointerDown.planet === 'moon' ? .07 : .19
-    const horizontalScale = Math.max(.18, Math.cos(body.pitch + tilt))
+    const horizontalScale = Math.max(.18, Math.cos(body.pose.pitch + tilt))
     const dx = event.clientX - pointerDown.lastX
     const dy = event.clientY - pointerDown.lastY
     const pitchLimit = Math.PI / 2
-    body.yaw += dx * radiansPerPixel / horizontalScale
-    body.pitch = THREE.MathUtils.clamp(body.pitch + dy * radiansPerPixel, -pitchLimit - tilt, pitchLimit - tilt)
+    body.pose.yaw += dx * radiansPerPixel / horizontalScale
+    body.pose.pitch = THREE.MathUtils.clamp(body.pose.pitch + dy * radiansPerPixel, -pitchLimit - tilt, pitchLimit - tilt)
+    // A drag takes over orientation while the current zoom can continue.
+    for (const pose of [body.from, body.to]) {
+      pose.yaw = body.pose.yaw
+      pose.pitch = body.pose.pitch
+      pose.turn = body.pose.turn
+    }
     pointerDown.lastX = event.clientX
     pointerDown.lastY = event.clientY
     if (renderer) renderer.domElement.style.cursor = 'grabbing'
@@ -568,16 +574,6 @@ function onPointerDown(event: PointerEvent) {
     }
   }
   const planet = hitTest(event)
-  if (planet && props.selected === planet && transitionDuration > 0) {
-    // Start a click/drag on the pose that is actually visible. An unfinished
-    // zoom or selection spin must not keep moving the ground under the pointer.
-    transitionDuration = 0
-    for (const name of PLANETS) {
-      bodies[name].from = clonePose(bodies[name].pose)
-      bodies[name].to = clonePose(bodies[name].pose)
-    }
-    requestRender()
-  }
   pointerDown = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, planet }
   if (planet && props.selected === planet) renderer?.domElement.setPointerCapture(event.pointerId)
 }
@@ -670,8 +666,7 @@ onMounted(() => {
   bodies.moon = createBody('moon')
   bodies.mars = createBody('mars')
   resize()
-  // Returning from results remounts this scene with an already selected point.
-  if (props.target) focusTarget(props.target)
+  if (props.target) arrange(false, 0, props.selected, props.target)
   loadTexture('moon', '/textures/moon-trek-global.webp')
   loadTexture('mars', '/textures/mars-trek-global.webp')
 
@@ -689,16 +684,15 @@ onMounted(() => {
 watch(() => props.selected, (selected, previous) => {
   arrange(true, selected ? 1 : previous ? -1 : 0, selected ?? previous)
 })
-watch(() => props.zoom, () => arrange(true))
+watch([() => props.zoom, () => props.target], ([zoom, target], [previousZoom, previousTarget]) => {
+  const focus = target !== previousTarget && target ? target : zoom > previousZoom ? props.point : null
+  arrange(true, 0, props.selected, focus ?? undefined)
+})
 watch(() => props.sheetExpanded, () => {
   settleUntil = performance.now() + 450
   requestRender()
 })
 watch(() => [props.point?.lat, props.point?.lon], requestRender)
-watch(() => props.target, target => {
-  if (target) focusTarget(target)
-})
-
 onBeforeUnmount(() => {
   disposed = true
   cancelAnimationFrame(raf)
@@ -745,12 +739,33 @@ onBeforeUnmount(() => {
 .surface-flag {
   position: absolute;
   z-index: 3;
-  width: 72px;
-  height: 77px;
-  transform-origin: top left;
   pointer-events: none;
   visibility: hidden;
   filter: drop-shadow(0 2px 3px #05070bcc);
+}
+
+.surface-flag__pole {
+  position: absolute;
+  left: -1.5px;
+  bottom: 0;
+  width: 3px;
+  height: var(--mast-length);
+  border-radius: 2px;
+  background: linear-gradient(90deg, #8793a4, #f5f8fb);
+  transform-origin: 50% 100%;
+  transform: rotate(var(--mast-angle));
+}
+.surface-flag__cloth {
+  position: absolute;
+  width: 72px;
+  max-width: none;
+  height: auto;
+  left: 0;
+  top: 0;
+  /* Preserve the artwork and clip its original painted pole. */
+  clip-path: inset(7.03% 0 42.1875% 13.3333%);
+  transform-origin: 0 0;
+  transform: var(--cloth-transform);
 }
 
 .lunar-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
