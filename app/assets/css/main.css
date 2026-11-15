@@ -171,11 +171,12 @@ h1, h2, h3 { font-family: Geist, Arial, sans-serif; }
   border: 1px solid transparent;
   border-radius: 30px;
   background: rgba(12, 17, 25, .54);
+  overflow: hidden;
   color: #f4f6fb;
-  backdrop-filter: blur(36px) saturate(.7);
-  -webkit-backdrop-filter: blur(36px) saturate(.7);
   pointer-events: auto;
 }
+.mission-blur-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(1.1); filter: blur(28px) saturate(.6) brightness(.68); opacity: .78; pointer-events: none !important; }
+.is-exploring .back-button, .is-exploring .mission-content, .is-exploring .sheet-toggle { z-index: 1; }
 .is-exploring .mission-panel::before {
   content: '';
   position: absolute;
@@ -185,6 +186,7 @@ h1, h2, h3 { font-family: Geist, Arial, sans-serif; }
   background: linear-gradient(to bottom right, #ffffff66 0%, #ffffff00 50%, #ffffff66 100%);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
+  z-index: 2;
   pointer-events: none;
 }
 .is-exploring .site-header { z-index: 11; padding: 24px 0 0 36px; pointer-events: none; }

@@ -268,7 +268,7 @@ useHead({
     <NuxtRouteAnnouncer />
 
     <ClientOnly><Starfield :orbit="skyRotation" :parallax="!selected && !introActive" /></ClientOnly>
-    <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @pinch="changeZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
+    <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" :sheet-expanded="mobileSheetExpanded" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @pinch="changeZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
 
@@ -334,6 +334,7 @@ useHead({
 
     <Transition name="mission-panel">
       <main v-if="selected" class="mission-panel" :class="{ 'is-sheet-expanded': mobileSheetExpanded }">
+        <canvas class="mission-blur-backdrop" aria-hidden="true" />
         <button class="back-button" type="button" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12H4m0 0 6-6m-6 6 6 6" stroke="currentColor" stroke-width="1.5" /></svg>
           {{ t('backDestinations') }}

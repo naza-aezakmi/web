@@ -46,7 +46,7 @@ type Body = {
   tiles: ReturnType<typeof createSphericalTiles>
 }
 
-const props = defineProps<{ selected: Planet | null; zoom: number; point: { lat: number; lon: number } | null; target: { lat: number; lon: number } | null }>()
+const props = defineProps<{ selected: Planet | null; zoom: number; point: { lat: number; lon: number } | null; target: { lat: number; lon: number } | null; sheetExpanded: boolean }>()
 const emit = defineEmits<{ select: [value: Planet]; mark: [value: { planet: Planet; lat: number; lon: number }]; landmark: [name: string]; zoom: [event: WheelEvent]; pinch: [direction: number]; orbit: [rotation: [number, number, number, number]]; scale: [value: { kilometers: number; pixels: number; segments: number }] }>()
 const container = ref<HTMLElement | null>(null)
 const flagOverlay = ref<HTMLImageElement | null>(null)
@@ -370,6 +370,29 @@ function updateFlagOverlay() {
   flag.style.visibility = x >= -80 && x <= viewport.width + 80 && y >= -80 && y <= viewport.height + 80 ? 'visible' : 'hidden'
 }
 
+function updatePanelBackdrop() {
+  const canvas = container.value?.parentElement?.querySelector<HTMLCanvasElement>('.mission-blur-backdrop')
+  if (!canvas || !renderer || !container.value) return
+  const panel = canvas.getBoundingClientRect()
+  const sceneBounds = container.value.getBoundingClientRect()
+  if (!panel.width || !panel.height) return
+  const width = Math.ceil(panel.width)
+  const height = Math.ceil(panel.height)
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width
+    canvas.height = height
+  }
+  const context = canvas.getContext('2d')
+  if (!context) return
+  const scaleX = renderer.domElement.width / sceneBounds.width
+  const scaleY = renderer.domElement.height / sceneBounds.height
+  context.drawImage(renderer.domElement,
+    (panel.left - sceneBounds.left) * scaleX,
+    (panel.top - sceneBounds.top) * scaleY,
+    panel.width * scaleX, panel.height * scaleY,
+    0, 0, width, height)
+}
+
 function updateSky() {
   const planet = props.selected
   if (planet !== skyPlanet) {
@@ -426,6 +449,7 @@ function frame(now: number) {
   const active = props.selected ? bodies[props.selected] : null
   camera.position.z = Math.max(20, (active?.pose.radius ?? 0) + 20)
   renderer.render(scene, camera)
+  updatePanelBackdrop()
   updateFlagOverlay()
   updateLabels()
   updateSky()
@@ -584,7 +608,7 @@ onMounted(() => {
   motionQuery.addEventListener('change', onMotionChange)
 
   try {
-    renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' })
+    renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true, powerPreference: 'low-power' })
     renderer.setClearColor(0x000000, 0)
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -633,6 +657,10 @@ watch(() => props.selected, (selected, previous) => {
   arrange(true, selected ? 1 : previous ? -1 : 0, selected ?? previous)
 })
 watch(() => props.zoom, () => arrange(true))
+watch(() => props.sheetExpanded, () => {
+  settleUntil = performance.now() + 450
+  requestRender()
+})
 watch(() => [props.point?.lat, props.point?.lon], requestRender)
 watch(() => props.target, target => {
   const planet = props.selected
