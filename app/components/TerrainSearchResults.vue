@@ -167,6 +167,8 @@ td { white-space: nowrap; color: #d6dbe2; }
 }
 @media (max-width: 760px) {
   .terrain-results {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
     padding: calc(12px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
       calc(22px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
   }
@@ -181,7 +183,17 @@ td { white-space: nowrap; color: #d6dbe2; }
   .results-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "map" "candidates"; gap: 12px; }
   .results-list,.results-report { padding: 13px; border-radius: 20px; }
   .results-candidates { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 4px 0 8px; }
-  .results-choice { flex: 0 0 min(76%, 225px); margin-top: 0; scroll-snap-align: start; }
+  .results-choice { flex: 0 0 min(76%, 225px); min-width: 0; margin-top: 0; scroll-snap-align: start; overflow-wrap: anywhere; }
   .results-report { margin-top: 12px; }
+  .comparison-scroll { overflow: visible; }
+  .comparison-scroll table { table-layout: fixed; font-size: clamp(.65rem, 2.7vw, .82rem); }
+  .comparison-scroll :is(th, td) {
+    padding: 8px 3px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .comparison-scroll thead th:first-child { width: 31%; }
+  .comparison-scroll thead th:nth-child(2) { width: 13%; }
+  .comparison-scroll thead th:last-child { width: 20%; }
 }
 </style>

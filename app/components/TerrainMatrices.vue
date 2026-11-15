@@ -81,13 +81,17 @@ function cellStyle(value: number, scale: number) {
 h3 { margin: 0; font-size: 1rem; }
 p { margin: 6px 0 12px; color: #c0c5cf; font-size: .84rem; line-height: 1.55; }
 .matrix-grid,.matrix-evidence { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,170px),1fr)); gap: 10px; }
-figure { margin: 0; background: #141416; border: 1px solid #ffffff24; border-radius: 14px; padding: 8px; }
+figure { min-width: 0; margin: 0; background: #141416; border: 1px solid #ffffff24; border-radius: 14px; padding: 8px; }
 figcaption { display: flex; justify-content: space-between; gap: 4px; padding: 4px; font-size: .8rem; font-weight: 700; }
-small { font-weight: 400; color: #bdc4ce; }
+small { flex-shrink: 0; font-weight: 400; color: #bdc4ce; }
 table { width: 100%; table-layout: fixed; border-spacing: 2px; font-variant-numeric: tabular-nums; }
 td { overflow-wrap: anywhere; text-align: center; height: 28px; padding: 2px 0; border-radius: 3px; font-size: .62rem; }
 .matrix-evidence { margin: 12px 0 0; }
 .matrix-evidence > div { padding: 8px 10px; border: 1px solid #ffffff22; border-radius: 12px; }
 dt { color: #bdc4ce; font-size: .76rem; }
 dd { margin: 3px 0 0; font-weight: 700; }
+@media (max-width: 520px) {
+  .matrix-grid { grid-template-columns: minmax(0, 1fr); }
+  figcaption { overflow-wrap: anywhere; }
+}
 </style>

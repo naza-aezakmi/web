@@ -7,19 +7,13 @@ const { locale, t } = useI18n()
 const selected = ref<Planet | null>(null)
 const zoom = ref(0)
 const mobileSheetExpanded = ref(false)
-const mobileStudyStep = ref(false)
 
 function showStudyStep() {
   if (!resolved.value) return
   pointOpen.value = false
-  mobileStudyStep.value = true
   mobileSheetExpanded.value = true
 }
 
-function showLocationStep() {
-  mobileStudyStep.value = false
-  mobileSheetExpanded.value = false
-}
 const sheetHeight = ref<number>()
 let sheetDrag: { pointer: number; startY: number; height: number; max: number } | undefined
 let ignoreSheetClick = false
@@ -57,10 +51,7 @@ function toggleSheet(event: MouseEvent) {
 
 function openPointInput() {
   pointOpen.value = true
-  if (window.matchMedia('(max-width: 760px)').matches) {
-    mobileStudyStep.value = false
-    mobileSheetExpanded.value = true
-  }
+  if (window.matchMedia('(max-width: 760px)').matches) mobileSheetExpanded.value = true
 }
 const mapTarget = ref<{ lat: number; lon: number } | null>(null)
 const triedSearch = ref(false)
@@ -183,7 +174,7 @@ function blankForm() {
 }
 
 function selectPlanet(planet: Planet) {
-  showLocationStep()
+  mobileSheetExpanded.value = false
   zoom.value = 0
   mapTarget.value = null
   triedSearch.value = false
@@ -233,7 +224,7 @@ function markLandmark(name: string) {
 }
 
 function goBack() {
-  showLocationStep()
+  mobileSheetExpanded.value = false
   zoom.value = 0
   selected.value = null
 }
@@ -408,7 +399,7 @@ useHead({
     </button>
 
     <Transition name="mission-panel">
-      <main v-if="selected" class="mission-panel" :class="{ 'is-sheet-expanded': mobileSheetExpanded, 'is-sheet-dragging': sheetHeight, 'is-study-step': mobileStudyStep }"
+      <main v-if="selected" class="mission-panel" :class="{ 'is-sheet-expanded': mobileSheetExpanded, 'is-sheet-dragging': sheetHeight }"
         :style="sheetHeight ? { '--sheet-drag-height': sheetHeight + 'px' } : undefined">
         <canvas class="mission-blur-backdrop" aria-hidden="true" />
         <button class="back-button" type="button" @click="goBack">
@@ -477,12 +468,6 @@ useHead({
                 </p>
                 <p v-if="pointError" class="field-error">{{ pointError }}</p>
               </section>
-
-              <div v-if="resolved" class="mobile-study-origin">
-                <div><strong>{{ resolved.title }}</strong><small>{{ formatResolved(resolved.lat, resolved.lon) }}</small></div>
-                <button type="button" @click="showLocationStep">{{ t('changeLocation') }}</button>
-              </div>
-              <button v-if="resolved" type="button" class="mobile-step-next" @click="showStudyStep">{{ t('chooseStudyStep') }} <span aria-hidden="true">↑</span></button>
 
               <div class="study-field">
                 <p class="field-kicker" id="study-label"><b>{{ t('studyQuestion') }}</b></p>
