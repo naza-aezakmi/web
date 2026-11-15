@@ -255,6 +255,9 @@ function arrange(animate: boolean, spin = 0, spinningPlanet: Planet | null = pro
   if (!renderer) return
   for (const planet of PLANETS) {
     const body = bodies[planet]
+    // Zoom anchors the selected coordinate using the current rotation, including
+    // any drag since the last rendered frame.
+    applyPose(body)
     const target = targetPose(planet)
     body.from = clonePose(body.pose)
     body.to = {
@@ -265,6 +268,22 @@ function arrange(animate: boolean, spin = 0, spinningPlanet: Planet | null = pro
   }
   transitionStart = performance.now()
   transitionDuration = animate && !isReducedMotion ? (spin || !props.selected ? 1350 : 600) : 0
+  requestRender()
+}
+
+function focusTarget(target: { lat: number; lon: number }) {
+  const planet = props.selected
+  if (!planet || !camera || !bodies[planet]) return
+  // A search may arrive during the selection spin or in the same update as zoom.
+  // Finish that pose before calculating the rotation and the zoom anchor together.
+  transitionDuration = 0
+  for (const name of PLANETS) bodies[name].pose = clonePose(bodies[name].to)
+  const body = bodies[planet]
+  body.pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(target.lat, -90, 90)) - (planet === 'moon' ? .07 : .19)
+  body.yaw = THREE.MathUtils.degToRad(-90 - target.lon) - (planet === 'moon' ? -.9 : .42) - body.pose.turn
+  applyPose(body)
+  arrange(false)
+  settleUntil = performance.now() + 100
   requestRender()
 }
 
@@ -460,10 +479,12 @@ function frame(now: number) {
 
 function resize() {
   if (!renderer || !camera || !container.value) return
-  const rect = container.value.getBoundingClientRect()
+  // The intro scales the scene to 84%. Its transformed bounding rectangle is
+  // smaller than the layout canvas and does not trigger ResizeObserver when the
+  // animation ends. Use layout dimensions for rendering and DOM overlays.
   viewport = {
-    width: Math.max(1, rect.width || window.innerWidth),
-    height: Math.max(1, rect.height || window.innerHeight),
+    width: Math.max(1, container.value.clientWidth || window.innerWidth),
+    height: Math.max(1, container.value.clientHeight || window.innerHeight),
   }
   const aspect = viewport.width / viewport.height
   camera.left = -(VISIBLE_HEIGHT * aspect) / 2
@@ -521,7 +542,7 @@ function onPointerMove(event: PointerEvent) {
     const horizontalScale = Math.max(.18, Math.cos(body.pitch + tilt))
     const dx = event.clientX - pointerDown.lastX
     const dy = event.clientY - pointerDown.lastY
-    const pitchLimit = THREE.MathUtils.degToRad(pointerDown.planet === 'moon' ? 72 : 90)
+    const pitchLimit = Math.PI / 2
     body.yaw += dx * radiansPerPixel / horizontalScale
     body.pitch = THREE.MathUtils.clamp(body.pitch + dy * radiansPerPixel, -pitchLimit - tilt, pitchLimit - tilt)
     pointerDown.lastX = event.clientX
@@ -547,6 +568,16 @@ function onPointerDown(event: PointerEvent) {
     }
   }
   const planet = hitTest(event)
+  if (planet && props.selected === planet && transitionDuration > 0) {
+    // Start a click/drag on the pose that is actually visible. An unfinished
+    // zoom or selection spin must not keep moving the ground under the pointer.
+    transitionDuration = 0
+    for (const name of PLANETS) {
+      bodies[name].from = clonePose(bodies[name].pose)
+      bodies[name].to = clonePose(bodies[name].pose)
+    }
+    requestRender()
+  }
   pointerDown = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, planet }
   if (planet && props.selected === planet) renderer?.domElement.setPointerCapture(event.pointerId)
 }
@@ -639,6 +670,8 @@ onMounted(() => {
   bodies.moon = createBody('moon')
   bodies.mars = createBody('mars')
   resize()
+  // Returning from results remounts this scene with an already selected point.
+  if (props.target) focusTarget(props.target)
   loadTexture('moon', '/textures/moon-trek-global.webp')
   loadTexture('mars', '/textures/mars-trek-global.webp')
 
@@ -663,14 +696,7 @@ watch(() => props.sheetExpanded, () => {
 })
 watch(() => [props.point?.lat, props.point?.lon], requestRender)
 watch(() => props.target, target => {
-  const planet = props.selected
-  if (!planet || !target || !bodies[planet]) return
-  const body = bodies[planet]
-  const limit = planet === 'moon' ? 72 : 90
-  body.pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(target.lat, -limit, limit)) - (planet === 'moon' ? .07 : .19)
-  body.yaw = THREE.MathUtils.degToRad(-90 - target.lon) - (planet === 'moon' ? -.9 : .42) - body.pose.turn
-  settleUntil = performance.now() + 100
-  requestRender()
+  if (target) focusTarget(target)
 })
 
 onBeforeUnmount(() => {

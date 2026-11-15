@@ -4,15 +4,17 @@
 
 An interactive Moon and Mars explorer built with Nuxt, Vue, Three.js, and a Canvas starfield. Select a planet, choose a location and field study, then compare its terrain with ranked Earth analogues. On phones, drag to rotate, pinch to zoom, and tap the surface to place the NASA flag.
 
-## Mars ML click integration
+## Shared Moon and Mars search
 
-Select **Mars** and click anywhere on its surface, click a named landmark, or enter coordinates and press **Find**. A panel opens on the left half of the desktop screen (a scrollable bottom panel on phones). It shows the trained terrain type, three Earth candidates, administrative region/country, exact coordinates, live Esri satellite imagery and an external Earth map link. The comparison table and expandable explanation show why the terrain was selected, plus cover and separate climate context. Close the panel or press Escape to return to the form. The globe remains available for the next click.
+Both planets use the same flow: choose a point by clicking the globe, selecting a landmark or searching coordinates, choose a field-study objective, then press **Find Earth analogues**. Choosing a point only positions the flag. An objective is required before submitting.
 
-The two model assets in `public/ml/mars` load once; subsequent clicks are local lookups. The card does not need an API key, sklearn, OpenAI, or the separate API service. Satellite imagery requires an internet connection and has a readable fallback with a working map link. It is an overhead satellite view of the candidate coordinate, not a stock landscape photograph.
+The API compares four characteristics: the aligned 5 × 5 elevation profile, elevation range, mean slope, and RMS roughness after fitting a plane. The selected objective assigns weights of 45%, 25%, 20% and 10% in priority order. Rover testing, astronaut training, landing sensors, excavation and geology have their own priority orders; a custom objective uses the existing optional AI prioritization with a documented fallback. The same land screen, geographic mix and scoring method apply to both planets, returning ten ranked candidates.
 
-The authoritative model and export script live in the sibling `ml` repository. Update the bundle with `python3 ../ml/scripts/export.py --web .` and run `pnpm test:model` plus `pnpm build` before deployment. The source type map has 10 regional terrain classes, a 0.5° lookup step, and fixed Earth catalogs per class. Matching uses terrain only; class prototype values do not describe an exact local patch. No soil or rover passability prediction is claimed. The trained Mars model is never applied to the Moon; its existing terrain search remains available.
+Results show the objective, satellite imagery, Earth coordinates, weights, feature differences and aligned elevation matrices. Mars uses NASA MGS MOLA, the Moon NASA LRO LOLA, and Earth NOAA ETOPO2022. These are 10 km regional windows with 2.5 km sample spacing; they do not predict soil composition or wheel-scale passability. Earth imagery is live Esri satellite imagery and requires internet access.
 
-The API also exposes the same model as `POST /terrain/analogs` for other clients, but the card deliberately uses its packaged browser inference so the web deployment can work independently. No changes to deployment secrets or Docker environment are needed. Publishing still follows the existing push-to-main workflow below.
+The former instant, three-candidate Mars prototype panel is no longer part of this flow. Its experimental 10-type artifacts remain in `public/ml/mars`, with source in the sibling `ml` repository and the separate `/terrain/analogs` API, for independent analysis. They do not influence this objective-based search.
+
+The flag stays attached to the clicked surface coordinate during rotation and zoom. Named/coordinate searches settle any planet-selection spin and calculate orientation and zoom anchoring together. Returning from results restores the selected coordinate when the globe remounts.
 
 ## Architecture
 

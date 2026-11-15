@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { TerrainResults } from '../shared/terrain'
-import { loadMarsModel, type MarsAnalogResult } from '../shared/marsAnalog'
 import { formatCoordinates, nearestSites, parseCoordinates, resolvePoint, searchSites, studiesFor, type Planet } from '~/data/places'
 
 const { locale, t } = useI18n()
@@ -27,37 +26,6 @@ const terrainResults = ref<TerrainResults | null>(null)
 const terrainLoading = ref(false)
 const terrainError = ref('')
 let terrainAbort: AbortController | undefined
-const analogOpen = ref(false)
-const analogResult = ref<MarsAnalogResult | null>(null)
-const analogPoint = ref({ lat: 0, lon: 0 })
-const analogLoading = ref(false)
-const analogError = ref('')
-let analogRequest = 0
-
-function closeAnalogs() {
-  analogRequest++
-  analogOpen.value = false
-}
-
-async function findMarsAnalogs(point: { lat: number; lon: number } | null = resolved.value) {
-  if (!point || selected.value !== 'mars') return
-  const request = ++analogRequest
-  analogPoint.value = { lat: point.lat, lon: point.lon }
-  analogResult.value = null
-  analogError.value = ''
-  analogLoading.value = true
-  analogOpen.value = true
-  pointOpen.value = false
-  mobileSheetExpanded.value = false
-  try {
-    const model = await loadMarsModel()
-    if (request === analogRequest) analogResult.value = model.lookup(point.lat, point.lon)
-  } catch {
-    if (request === analogRequest) analogError.value = 'The Mars terrain model could not be loaded. Check your connection and try again.'
-  } finally {
-    if (request === analogRequest) analogLoading.value = false
-  }
-}
 
 function closeTerrainResults() {
   terrainAbort?.abort()
@@ -68,7 +36,6 @@ function closeTerrainResults() {
 async function findTerrain() {
   const point = resolved.value
   if (!point || !selected.value) return
-  if (selected.value === 'mars') { void findMarsAnalogs(point); return }
   terrainAbort?.abort()
   const request = new AbortController()
   terrainAbort = request
@@ -159,7 +126,6 @@ function blankForm() {
 }
 
 function selectPlanet(planet: Planet) {
-  closeAnalogs()
   mobileSheetExpanded.value = false
   zoom.value = 0
   mapTarget.value = null
@@ -190,18 +156,15 @@ function markPoint(point: { planet: Planet; lat: number; lon: number }) {
   form.value.pointQuery = formatCoordinates(point.lat, point.lon, point.planet)
   pointOpen.value = false
   triedSubmit.value = false
-  if (point.planet === 'mars') void findMarsAnalogs(point)
 }
 
 function markLandmark(name: string) {
   form.value.pointQuery = name
   pointOpen.value = false
   triedSubmit.value = false
-  if (selected.value === 'mars') void findMarsAnalogs()
 }
 
 function goBack() {
-  closeAnalogs()
   mobileSheetExpanded.value = false
   zoom.value = 0
   selected.value = null
@@ -209,7 +172,7 @@ function goBack() {
 
 function submitForm() {
   triedSubmit.value = true
-  if (!resolved.value || (selected.value !== 'mars' && !studyLabel.value)) return
+  if (!resolved.value || !studyLabel.value) return
   pointOpen.value = false
   void findTerrain()
 }
@@ -242,7 +205,6 @@ function focusResult() {
   mapTarget.value = { lat: point.lat, lon: point.lon }
   zoom.value = selected.value === 'moon' && Math.abs(point.lat) > 72 ? 2 : Math.max(zoom.value, 2)
   sourceRevealed.value = false
-  if (selected.value === 'mars') void findMarsAnalogs(point)
 }
 
 function searchPoint() {
@@ -309,8 +271,6 @@ useHead({
     <ClientOnly><PlanetScene :selected="selected" :zoom="zoom" :point="resolved" :target="mapTarget" :sheet-expanded="mobileSheetExpanded" @select="selectPlanet" @mark="markPoint" @landmark="markLandmark" @zoom="wheelZoom" @pinch="changeZoom" @orbit="moveStars" @scale="mapScale = $event" /></ClientOnly>
 
     <ClientOnly><NasaIntro v-if="introVisible" @leaving="revealPlanets" @finished="finishIntro" /></ClientOnly>
-
-    <MarsAnalogPanel v-if="selected === 'mars' && analogOpen" :result="analogResult" :point="analogPoint" :loading="analogLoading" :error="analogError" @close="closeAnalogs" @retry="findMarsAnalogs()" />
 
     <header v-if="selected" class="site-header">
       <a class="brand" href="/"  :aria-label="t('backDestinations')" @click.prevent="goBack">
@@ -389,7 +349,6 @@ useHead({
         <div class="mission-content">
           <form class="mission-form" @submit.prevent="submitForm">
               <section class="point-block" :aria-label="t('mapSearch')">
-                <p v-if="selected === 'mars'" class="field-hint">Tap anywhere on Mars to discover Earth terrain analogs. No study selection required.</p>
                 <label class="point-label" for="map-point">{{ t('choosePlace') }}</label>
                 <div class="point-search-box">
                 <div class="point-search-row">
@@ -441,7 +400,7 @@ useHead({
                 <p v-if="pointError" class="field-error">{{ pointError }}</p>
               </section>
 
-              <div v-if="selected !== 'mars'" class="study-field">
+              <div class="study-field">
                 <p class="field-kicker" id="study-label"><b>{{ t('studyQuestion') }}</b></p>
                 <div class="study-grid" role="radiogroup" aria-labelledby="study-label">
                   <button
