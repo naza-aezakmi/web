@@ -16,6 +16,16 @@ The former instant, three-candidate Mars prototype panel is no longer part of th
 
 The flag stays attached to the clicked surface coordinate during rotation and zoom. Named/coordinate searches settle any planet-selection spin and calculate orientation and zoom anchoring together. Returning from results restores the selected coordinate when the globe remounts.
 
+## Understand a candidate
+
+Every result lists country/territory plus coordinates; the selected location links to an Earth map. **Why this site & environmental conditions** scrolls to the analysis. Exact SHAP bars explain which of the four matching descriptors improve or worsen this candidate's score relative to the average of the displayed ten candidates. A short text states the strongest improvement, remaining mismatch and highest-priority criterion. The baseline-plus-attributions equation reconstructs the score; the chart is not confidence, causality or global feature importance.
+
+The environmental passport loads through the same-origin `/api/terrain-context` proxy after terrain results. Earth shows NASA POWER climatology (air/skin temperature, seasonal monthly means, humidity, precipitation, wind and pressure). Mars shows the separately labeled MCD snapshot. Moon shows the observed Diviner surface-temperature range and local-time coverage. Different periods and quantities are explicitly labeled. Climate is planning context and is excluded from terrain ranking, as requested. Failed sources show a retry option without preventing terrain exploration. Candidate switching aborts obsolete requests and caches successful passport pairs for the current result view.
+
+The old elevation matrices are collapsed under **Show the elevation samples and their differences**, with a plain explanation: they are sampled height maps and residuals, not a correlation matrix. The Pearson statistic remains a separate summary of the height patterns.
+
+For local development, the context endpoint follows `TERRAIN_API_URL` by replacing `/search` with `/context`; optionally set `TERRAIN_CONTEXT_API_URL` explicitly. No new credentials or dependencies are required.
+
 ## Architecture
 
 The browser talks to this app's same-origin `/api/terrain-search` route. That route forwards requests to the separate [FastAPI service](https://github.com/Org666777148852/api). The API owns the relief index, search worker, and optional AI priority ranking. Map imagery comes from NASA Trek; Earth satellite imagery in the results comes from Esri.

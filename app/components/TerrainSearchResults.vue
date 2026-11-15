@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { TerrainResults } from '../../shared/terrain'
-import { TERRAIN_FEATURES, formatCoordinates, type Planet } from '~/data/places'
+import { formatCoordinates, type Planet } from '~/data/places'
 
 const { t } = useI18n()
 const props = defineProps<{
@@ -38,6 +38,8 @@ const comparison = computed(() => {
 })
 const largestDifference = computed(() => comparison.value.reduce<(typeof comparison.value)[number] | undefined>(
   (largest, row) => !largest || row.contribution > largest.contribution ? row : largest, undefined))
+const mapLink = computed(() => candidate.value ? `https://www.google.com/maps/search/?api=1&query=${candidate.value.lat},${candidate.value.lon}` : '')
+function showAnalysis() { document.querySelector('.results-report')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }) }
 </script>
 
 <template>
@@ -65,7 +67,8 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
       </div>
       <div v-else-if="results && candidate" class="results-layout">
         <article class="results-detail" :aria-label="t('results.site', { number: String(active + 1).padStart(2, '0') })">
-          <div class="site-title"><h2>{{ t('results.site', { number: String(active + 1).padStart(2, '0') }) }}</h2><p>{{ coordinates(candidate.lat, candidate.lon) }}</p></div>
+          <div class="site-title"><h2>{{ candidate.country || 'Country unresolved' }} <small>· {{ t('results.site', { number: String(active + 1).padStart(2, '0') }) }}</small></h2><a :href="mapLink" target="_blank" rel="noopener noreferrer">{{ coordinates(candidate.lat, candidate.lon) }} ↗</a></div>
+          <button class="analysis-link" type="button" @click="showAnalysis">Why this site & environmental conditions ↓</button>
           <TerrainSatellite :key="candidate.position" :site="candidate" :step="results.step" :radius="results.earth.radius" />
         </article>
         <nav class="results-list" :aria-label="t('results.ranked')">
@@ -75,7 +78,7 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
             <button v-for="(site, index) in results.matches" :key="site.position" class="results-choice"
               :class="{ 'is-active': active === index }" :aria-pressed="active === index" @click="active = index">
               <span class="results-rank">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span><strong>{{ coordinates(site.lat, site.lon) }}</strong><small>{{ site.usa ? t('results.unitedStates') : '' }}{{ format(site.error, 'm') }} {{ t('results.profileRmse') }}</small></span>
+              <span><strong>{{ site.country || (site.usa ? 'United States of America' : 'Country unresolved') }}</strong><small>{{ coordinates(site.lat, site.lon) }}</small><small>{{ format(site.error, 'm') }} {{ t('results.profileRmse') }}</small></span>
             </button>
           </div>
         </nav>
@@ -84,6 +87,9 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
     </div>
     <section v-if="results && candidate" class="results-report" :aria-label="t('results.analysis')">
       <h2>{{ t('results.site', { number: String(active + 1).padStart(2, '0') }) }} · {{ t('results.analysis') }}</h2>
+      <TerrainExplanation v-if="candidate.explanation" :explanation="candidate.explanation" />
+      <TerrainEnvironment :planet="planet" :source="results.source" :site="candidate" />
+      <h3>Compare the terrain measurements</h3>
       <p>{{ t('results.profileComparison') }}
         <strong>{{ format(candidate.error, 'm') }} RMS</strong> {{ t('results.across', { count: results.size ** 2 }) }}
         <template v-if="largestDifference?.contribution">
@@ -103,10 +109,16 @@ const largestDifference = computed(() => comparison.value.reduce<(typeof compari
           </tbody>
         </table>
       </div>
-      <TerrainMatrices :source-name="sourceName" :source="results.query" :earth="candidate.values" :size="results.size" :rotation="candidate.rotation" />
+      <details class="height-details"><summary>Show the elevation samples and their differences</summary>
+        <p>Each square below is a height sample, rather than a correlation between features. The first two grids show the two landscapes relative to their own mean height. The third shows Earth minus {{ sourceName }}: values near zero mean a close match. Pearson correlation is a separate summary of the two height patterns.</p>
+        <TerrainMatrices :source-name="sourceName" :source="results.query" :earth="candidate.values" :size="results.size" :rotation="candidate.rotation" />
+      </details>
       <h3>{{ t('results.fieldScreening') }}</h3>
       <p class="results-method">{{ t('results.fieldMethod') }}
         <a href="https://www.naturalearthdata.com/downloads/10m-physical-vectors/" target="_blank" rel="noopener noreferrer">Natural Earth ↗</a>
+      </p>
+      <p class="results-method">Countries and territories are labeled at each window centre using
+        <a href="https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_50m_admin_0_countries.geojson" target="_blank" rel="noopener noreferrer">Natural Earth 1:50m ↗</a>.
       </p>
       <p v-if="results.prioritySource === 'ai'" class="results-method">{{ t('results.aiRanked') }}</p>
       <p v-if="results.prioritySource === 'default'" class="results-method">{{ t('results.defaultWeights') }}</p>
@@ -146,6 +158,12 @@ p { margin: 6px 0; color: #bfc5cd; overflow-wrap: anywhere; }
 .results-choice small { display: block; opacity: .74; margin-top: 3px; }
 .results-rank { opacity: .66; font-variant-numeric: tabular-nums; }
 .site-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin: 0 0 10px; }
+.site-title h2 small { font-weight: 400; font-size: .8rem; color: #aebbc8; }
+.site-title > a { color: #c7d8e9; font-size: .84rem; }
+.analysis-link { width: fit-content; margin-bottom: 12px; border: 0; padding: 4px 0; background: transparent; color: #b6d1ea; text-align: left; font: inherit; font-size: .8rem; cursor: pointer; }
+.height-details { border-block: 1px solid #ffffff22; padding: 16px 0; margin: 22px 0; }
+.height-details summary { cursor: pointer; color: #d9e4ee; font-size: .88rem; }
+.height-details > p { font-size: .84rem; line-height: 1.65; }
 .results-report { margin-block: 20px 0; }
 .results-detail { grid-area: map; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .results-method a { color: inherit; }
